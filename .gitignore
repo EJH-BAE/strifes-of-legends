@@ -1,0 +1,5 @@
+tools/
+.godot/
+*.exe
+installer/out/
+update-channel/

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Strifes of Legends</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b0c10' stroke='%23d4b483'/%3E%3Cpath d='M32 8 L36 32 L32 56 L28 32 Z' fill='%23f0e2c0'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="crest" viewBox="0 0 128 128">
+      <defs>
+        <linearGradient id="foil" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#8c6a3a"/>
+          <stop offset="0.45" stop-color="#fff1cc"/>
+          <stop offset="1" stop-color="#b8893d"/>
+        </linearGradient>
+      </defs>
+      <circle cx="64" cy="64" r="58" fill="#0c0d12" stroke="url(#foil)" stroke-width="2.2"/>
+      <circle cx="64" cy="64" r="50" fill="none" stroke="#d4b483" stroke-width="0.6" opacity="0.8"/>
+      <path d="M64 14 L66.2 22 L64 20.2 L61.8 22 Z M64 106 L66.2 114 L64 112.2 L61.8 114 Z M14 64 L22 66.2 L20.2 64 L22 61.8 Z M106 64 L114 66.2 L112.2 64 L114 61.8 Z" fill="#f0e2c0"/>
+      <path d="M34 86 Q64 18 94 86" fill="none" stroke="url(#foil)" stroke-width="1.6"/>
+      <path d="M46 86 Q64 40 82 86" fill="none" stroke="#f3e6c8" stroke-width="0.7" opacity="0.7"/>
+      <path d="M64 22 L68.5 70 L64 108 L59.5 70 Z" fill="url(#foil)"/>
+      <path d="M64 42 l7 9 -7 9 -7 -9 z" fill="#0c0d12" stroke="#fff6dd" stroke-width="1"/>
+      <circle cx="64" cy="86" r="2.2" fill="#fff6dd"/>
+    </symbol>
+  </svg>
+
+  <div id="home">
+    <canvas id="bg"></canvas>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+    <header class="top">
+      <div class="brand">
+        <svg class="crest sm" viewBox="0 0 128 128"><use href="#crest"/></svg>
+        <div class="wordmark mini">
+          <span>STRIFES</span>
+          <small>OF LEGENDS</small>
+        </div>
+      </div>
+      <nav id="nav">
+        <button type="button" data-page="home" class="on">홈</button>
+        <button type="button" data-page="play">플레이</button>
+        <button type="button" data-page="collection">컬렉션</button>
+        <button type="button" data-page="profile">프로필</button>
+      </nav>
+      <div class="top-right">
+        <button type="button" id="mute" class="icon-btn" title="소리">♫</button>
+        <button type="button" id="open-settings" class="icon-btn" title="설정">⚙</button>
+        <div class="summoner-chip"><i></i><b id="chip-name">Bae</b></div>
+      </div>
+    </header>
+
+    <main>
+      <section id="page-home" class="page">
+        <div class="hero">
+          <svg class="crest lg" viewBox="0 0 128 128"><use href="#crest"/></svg>
+          <div class="wordmark">
+            <span>STRIFES</span>
+            <small>OF LEGENDS</small>
+            <em>분쟁의 전설</em>
+          </div>
+          <p class="lead">오래된 전장 위에 새긴 이름. 길과 시선, 그리고 한 번의 멈춤.</p>
+          <button type="button" id="play-main" class="play-btn">수련장 입장</button>
+        </div>
+        <aside class="rail">
+          <h2>파티</h2>
+          <div class="party"><i></i><div><b id="party-name">Bae</b><small>솔로 · 수련</small></div></div>
+          <h2>오늘의 전장</h2>
+          <ul class="notes">
+            <li><b>0.1</b> 바드가 수련장에 들어왔다.</li>
+            <li><b>조작</b> 우클릭 이동, 스킬, 핑, 상점, 귀환.</li>
+            <li><b>다음</b> 다른 챔피언과 본 경기는 그 다음이다.</li>
+          </ul>
+        </aside>
+      </section>
+
+      <section id="page-play" class="page hidden">
+        <header class="page-head"><h1>플레이</h1><p>지금은 수련장만 열려 있다.</p></header>
+        <div class="modes">
+          <article class="mode on">
+            <div class="mode-art practice"></div>
+            <h3>수련장</h3>
+            <p>바드로 이동, 공격, 스킬, 핑, 상점을 익힌다.</p>
+            <button type="button" id="play-mode" class="play-btn slim">입장</button>
+          </article>
+          <article class="mode locked">
+            <div class="mode-art rift"></div>
+            <h3>균열 대전</h3>
+            <p>세 갈래 길이 있는 본 경기. 아직 봉인되어 있다.</p>
+            <span>준비 중</span>
+          </article>
+          <article class="mode locked">
+            <div class="mode-art brawl"></div>
+            <h3>난투</h3>
+            <p>하나의 길. 나중에 연다.</p>
+            <span>준비 중</span>
+          </article>
+        </div>
+      </section>
+
+      <section id="page-collection" class="page hidden">
+        <header class="page-head"><h1>컬렉션</h1><p>지금 쓸 수 있는 챔피언.</p></header>
+        <article class="champ-card" id="champ-card"></article>
+      </section>
+
+      <section id="page-profile" class="page hidden">
+        <header class="page-head"><h1>프로필</h1><p>이 기기에 남는 수련 기록.</p></header>
+        <div class="profile" id="profile-card"></div>
+      </section>
+    </main>
+    <footer class="bottom-bar">PATCH 0.1.0 · 수련장 · 바드</footer>
+  </div>
+
+  <div id="settings" class="hidden">
+    <div class="settings-shell">
+      <header>
+        <svg class="crest sm" viewBox="0 0 128 128"><use href="#crest"/></svg>
+        <div>
+          <strong>설정</strong>
+          <small>Strifes of Legends</small>
+        </div>
+      </header>
+      <div class="settings-body">
+        <aside id="settings-tabs">
+          <button type="button" data-tab="general" class="on">일반</button>
+          <button type="button" data-tab="controls">조작</button>
+          <button type="button" data-tab="video">영상</button>
+          <button type="button" data-tab="sound">소리</button>
+          <button type="button" data-tab="interface">인터페이스</button>
+        </aside>
+        <section id="settings-panel"></section>
+      </div>
+      <footer>
+        <button type="button" id="set-ok">확인</button>
+        <button type="button" id="set-apply">적용</button>
+        <button type="button" id="set-cancel">취소</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="game" class="hidden">
+    <canvas id="view"></canvas>
+    <div id="hud">
+      <div class="top-fade"></div>
+      <div class="bot-fade"></div>
+      <div id="clock">0:00</div>
+      <div id="kda">0 / 0</div>
+      <div id="wave">미니언 30</div>
+      <div id="target-frame" class="hidden">
+        <strong>대상</strong>
+        <div class="bar"><div class="fill"></div></div>
+        <em>0 / 0</em>
+      </div>
+      <div id="scoreboard" class="hidden"></div>
+      <ul id="feed"></ul>
+      <div id="help">
+        <b>수련장 조작</b>
+        <p>우클릭 이동 · 적 우클릭 공격</p>
+        <p>A 후 좌클릭, 또는 Shift+우클릭 공격 이동</p>
+        <p>Q W E R 스킬 · D 점멸 · F 회복</p>
+        <p>S 정지 · B 귀환 · P 상점 · 1–7 아이템</p>
+        <p>Space 시점 · Y 고정 · G 핑</p>
+        <button type="button" id="hide-help">숨기기</button>
+      </div>
+      <div id="death" class="hidden">전사했습니다<b>8</b></div>
+      <div id="cast-hint" class="hidden"></div>
+      <div class="dock">
+        <div class="portrait-wrap">
+          <canvas id="portrait" width="84" height="84"></canvas>
+          <i id="level">6</i>
+        </div>
+        <div class="vitals">
+          <div class="hp"><div class="fill"></div><span></span></div>
+          <div class="mp"><div class="fill"></div><span></span></div>
+          <div class="xp"><div class="fill"></div></div>
+          <div class="meta"><span id="cs">CS 0</span><span id="gold">500</span><span>이속 <b id="ms">330</b></span></div>
+        </div>
+        <div id="summoners"></div>
+        <div id="ability-row"></div>
+        <div class="bag">
+          <div id="item-row"></div>
+          <button type="button" id="shop-btn">상점 P</button>
+        </div>
+      </div>
+      <canvas id="minimap" width="188" height="188"></canvas>
+    </div>
+    <div id="shop" class="hidden">
+      <header><strong>상점</strong><em id="shop-gold">500 골드</em><button type="button" id="shop-close">닫기</button></header>
+      <p class="shop-note">기지 안에서만 연다. 가진 아이템을 우클릭하면 되판다. 물약과 와드는 숫자 키로 쓴다.</p>
+      <div id="shop-list"></div>
+    </div>
+    <div id="pause" class="hidden">
+      <div class="pause-card">
+        <svg class="crest sm" viewBox="0 0 128 128"><use href="#crest"/></svg>
+        <h2>일시 정지</h2>
+        <button type="button" id="pause-resume">계속하기</button>
+        <button type="button" id="pause-reset">스킬·자원 초기화</button>
+        <button type="button" id="pause-restart">다시 시작</button>
+        <button type="button" id="pause-settings">설정</button>
+        <button type="button" id="pause-exit">홈으로</button>
+      </div>
+    </div>
+    <div id="wheel" class="hidden">
+      <div class="w up" data-dir="up">위험!</div>
+      <div class="w left" data-dir="left">적 사라짐!</div>
+      <div class="w down" data-dir="down">도와주세요!</div>
+      <div class="w right" data-dir="right">갑니다!</div>
+      <div class="core"></div>
+    </div>
+    <div id="drag-ghost" class="hidden"></div>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
