@@ -42,6 +42,8 @@ func setup(kind: String, tint: Color = Color(1, 1, 1, 0), size: float = 1.0) -> 
 		"warlord":
 			_build_warlord(tint, false)
 			_blade(get_node("Root/Chest/ArmR"), _mat(Color(0.78, 0.8, 0.85), 0.2, 0.95, Color(0.8, 0.85, 0.9), 0.1))
+		"staff", "burst", "enchanter":
+			_build_wanderer(false, tint, "staff")
 		_:
 			_build_wanderer(false, tint, kind)
 	_build_anims()

@@ -177,6 +177,9 @@ func _menu() -> void:
 	home_toast = Label.new()
 	home_toast.position = Vector2(36, 88)
 	home_toast.add_theme_color_override("font_color", Color(0.8, 0.9, 0.65))
+	if SolNet.notice != "":
+		home_toast.text = SolNet.notice
+		SolNet.notice = ""
 	root.add_child(home_toast)
 	var patch_label := Label.new()
 	patch_label.text = ""
@@ -432,12 +435,19 @@ func _show_matching() -> void:
 	match_title.add_theme_font_size_override("font_size", 36)
 	match_title.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
 	match_layer.add_child(match_title)
+	var dots := preload("res://scripts/load_dots.gd").new()
+	dots.set_anchors_preset(Control.PRESET_CENTER)
+	dots.offset_left = -120
+	dots.offset_top = 8
+	dots.offset_right = 120
+	dots.offset_bottom = 88
+	match_layer.add_child(dots)
 	match_clock = Label.new()
 	match_clock.set_anchors_preset(Control.PRESET_CENTER)
 	match_clock.offset_left = -80
-	match_clock.offset_top = 8
+	match_clock.offset_top = 96
 	match_clock.offset_right = 80
-	match_clock.offset_bottom = 40
+	match_clock.offset_bottom = 128
 	match_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	match_clock.add_theme_font_size_override("font_size", 22)
 	match_clock.add_theme_color_override("font_color", Color(0.9, 0.88, 0.8))
@@ -482,7 +492,7 @@ func _connect_server(host: String, port: int) -> void:
 		_show_matching()
 	matching = false
 	linking = true
-	link_wait = 12.0
+	link_wait = 25.0
 	if match_title:
 		match_title.text = "서버 연결 중..."
 	var err := SolNet.connect_match(host, port)

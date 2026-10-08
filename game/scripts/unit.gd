@@ -422,6 +422,8 @@ var cs = 0
 var level = 1
 
 func build_visual() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	if kind == "champion" or kind == "monster":
 		avatar = preload("res://scripts/avatar.gd").new()
 		avatar.setup(style if style != "" else "wanderer", tint, model_scale)

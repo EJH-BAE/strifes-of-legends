@@ -17,6 +17,8 @@ var match_id := ""
 var _ping_sent := 0
 var joining := false
 var _closing := false
+var alone := 0.0
+var notice := ""
 
 signal session_ready
 signal session_failed
@@ -96,6 +98,9 @@ func abort_join() -> void:
 		multiplayer.multiplayer_peer = null
 	_closing = false
 
+func legend_choice(_username: String) -> String:
+	return ""
+
 func party(op: String, extra: Dictionary = {}) -> Dictionary:
 	extra["op"] = op
 	if not StrifeAcc.logged_in():
@@ -150,10 +155,19 @@ func _on_connection_failed() -> void:
 	if waiting:
 		session_failed.emit()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var peer := multiplayer.multiplayer_peer
 	if peer is WebSocketMultiplayerPeer:
 		peer.poll()
+	if role == "server":
+		if started and multiplayer.get_peers().is_empty():
+			alone += delta
+			if alone >= 20.0:
+				alone = 0.0
+				finish_match()
+		else:
+			alone = 0.0
+		return
 	if role != "client":
 		return
 	if Time.get_ticks_msec() - _ping_sent < 1000:

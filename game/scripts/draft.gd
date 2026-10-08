@@ -374,9 +374,14 @@ func install_roster(mode_name: String, roster: Array) -> void:
 		var row: Dictionary = item
 		var role := str(row.get("role", "mid"))
 		var legend := str(row.get("legend", ""))
+		var human := bool(row.get("human", false))
+		if legend == "" and human:
+			legend = str(SolNet.legend_choice(str(row.get("username", ""))))
 		if legend == "":
 			var pick := _pick_for(role, used)
 			legend = str(pick.get("id", "orbel"))
+			used[legend] = true
+		else:
 			used[legend] = true
 		var slot := {
 			"legend": legend,

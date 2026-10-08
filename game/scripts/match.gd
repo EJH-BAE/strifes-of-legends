@@ -142,6 +142,8 @@ var minimap: TextureRect
 var minimap_dots: Control
 var fps_label: Label
 var wait_layer: CanvasLayer
+var wait_for := 0.0
+var leaving_wait := false
 const CAM_OFF = Vector3(0, 1500, -1120)
 var cam_lock = true
 var space_held = false
@@ -390,6 +392,8 @@ func _spawn_player() -> void:
 		slot = Draft.blue[4] if Draft.blue.size() > 4 else Draft.blue[0]
 	var def = Legends.by_id(str(slot.get("legend", "orbel")))
 	if def.is_empty():
+		if SolNet.serving():
+			return
 		def = Legends.by_id("orbel")
 	player_def = def
 	var role_name = str(slot.get("role", def["role"]))
@@ -408,8 +412,11 @@ func _spawn_player() -> void:
 
 func _apply_legend(u, def: Dictionary, uname: String, is_player: bool) -> void:
 	u.username = uname
+	u.unit_name = str(def.get("name", u.unit_name))
 	u.legend_id = str(def.get("id", ""))
 	u.kit_name = str(def.get("kit", "wanderer"))
+	u.style = str(def.get("style", u.style))
+	u.tint = def.get("tint", u.tint)
 	u.model_scale = float(def.get("scale", 1.0))
 	u.vital.max_mana = float(def.get("mana", 400))
 	u.vital.mana = u.vital.max_mana
@@ -1281,23 +1288,50 @@ func _show_wait(text: String) -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.color = Color(0.02, 0.03, 0.05, 1)
 	wait_layer.add_child(dim)
+	var dots := preload("res://scripts/load_dots.gd").new()
+	dots.set_anchors_preset(Control.PRESET_CENTER)
+	dots.offset_left = -120
+	dots.offset_top = -70
+	dots.offset_right = 120
+	dots.offset_bottom = 10
+	wait_layer.add_child(dots)
 	var label := Label.new()
 	label.text = text
 	label.set_anchors_preset(Control.PRESET_CENTER)
 	label.offset_left = -280
-	label.offset_top = -24
+	label.offset_top = 24
 	label.offset_right = 280
-	label.offset_bottom = 24
+	label.offset_bottom = 72
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 32)
 	label.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
 	wait_layer.add_child(label)
+	var cancel := Button.new()
+	cancel.text = "취소"
+	cancel.set_anchors_preset(Control.PRESET_CENTER)
+	cancel.offset_left = -60
+	cancel.offset_top = 88
+	cancel.offset_right = 60
+	cancel.offset_bottom = 128
+	cancel.pressed.connect(_give_up_wait)
+	wait_layer.add_child(cancel)
+
+func _give_up_wait() -> void:
+	if leaving_wait:
+		return
+	leaving_wait = true
+	SolNet.notice = "서버가 경기를 시작하지 못했습니다."
+	SolNet.abort_join()
+	get_tree().change_scene_to_file("res://main.tscn")
 
 func _process(delta: float) -> void:
 	if net_label:
 		net_label.text = "%d ms    %d FPS" % [SolNet.ping_ms, Engine.get_frames_per_second()]
 	if SolNet.remote_client():
 		if player == null:
+			wait_for += delta
+			if wait_for >= 20.0:
+				_give_up_wait()
 			return
 		if wait_layer != null and is_instance_valid(wait_layer):
 			wait_layer.queue_free()
@@ -1386,6 +1420,8 @@ func _tick_player(delta: float) -> void:
 		if w_charge_t >= float(_spec("w").get("recharge", 18.0)):
 			w_charges += 1
 			w_charge_t = 0.0
+	if player == null:
+		return
 	if meeps < 1:
 		meep_t += delta
 		if meep_t >= 8.0:

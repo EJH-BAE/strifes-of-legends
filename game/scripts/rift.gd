@@ -11,15 +11,18 @@ static var _leaf_sh: Shader = null
 
 static func build(parent: Node3D) -> Dictionary:
 	var walls: Array = []
-	_terrain(parent)
-	_river(parent)
+	var show := DisplayServer.get_name() != "headless"
+	if show:
+		_terrain(parent)
+		_river(parent)
 	_border(parent, walls)
-	_jungle(parent, walls)
-	_flora(parent)
-	_camps(parent)
-	_base_plaza(parent, Vector3(1700, 0, 1700), Color(0.25, 0.45, 0.85))
-	_base_plaza(parent, Vector3(13100, 0, 13100), Color(0.78, 0.26, 0.22))
-	_lane_lamps(parent)
+	_jungle(parent, walls, show)
+	if show:
+		_flora(parent)
+		_camps(parent)
+		_base_plaza(parent, Vector3(1700, 0, 1700), Color(0.25, 0.45, 0.85))
+		_base_plaza(parent, Vector3(13100, 0, 13100), Color(0.78, 0.26, 0.22))
+		_lane_lamps(parent)
 	var lanes = {
 		"top": _top(),
 		"mid": _mid(),
@@ -326,10 +329,12 @@ static func _blue_walls() -> Array:
 		[4000, 10300, 1600, 500, 260],
 	]
 
-static func _jungle(parent: Node3D, walls: Array) -> void:
+static func _jungle(parent: Node3D, walls: Array, show: bool) -> void:
 	for w in _blue_walls():
 		_wall(parent, walls, w[0], w[1], w[2], w[3], w[4])
 		_wall(parent, walls, SIZE - w[0] - w[2], SIZE - w[1] - w[3], w[2], w[3], w[4])
+	if not show:
+		return
 	_rock(parent, Vector3(5600, 0, 6400), 90)
 	_rock(parent, Vector3(9200, 0, 8400), 90)
 	_rock(parent, Vector3(3000, 0, 9800), 70)
@@ -394,6 +399,8 @@ static func minimap_image(size: int) -> Image:
 
 static func _wall(parent: Node3D, walls: Array, x: float, z: float, w: float, d: float, h: float) -> void:
 	walls.append(Rect2(x, z, w, d))
+	if DisplayServer.get_name() == "headless":
+		return
 	var rng = RandomNumberGenerator.new()
 	rng.seed = int(x * 7 + z * 13 + w)
 	var mat = _rock_material()
