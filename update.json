@@ -1,6 +1,6 @@
 {
-  "version": "0.6.2",
-  "notes": "Strife Acc는 데이터베이스에 등록됩니다. 매니저 로고가 입력칸을 가리지 않습니다.",
-  "installer": "https://github.com/EJH-BAE/strifes-of-legends/releases/download/v0.6.2/SoLSetup.exe",
-  "game": "https://github.com/EJH-BAE/strifes-of-legends/releases/download/v0.6.2/Strifes.of.Legends.exe"
+  "version": "0.6.4",
+  "notes": "레벨 매칭, 파티, 랭크, 발로란트형 홈.",
+  "installer": "https://github.com/EJH-BAE/strifes-of-legends/releases/download/v0.6.4/SoLSetup.exe",
+  "game": "https://github.com/EJH-BAE/strifes-of-legends/releases/download/v0.6.4/Strifes.of.Legends.exe"
 }
