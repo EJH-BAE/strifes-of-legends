@@ -276,31 +276,31 @@ func _page_video() -> void:
 			draft["fog"] = false
 		elif i == 1:
 			draft["shadows"] = true
-			draft["aa_mode"] = "taa"
-			draft["shadow_quality"] = "medium"
-			draft["ao"] = true
+			draft["aa_mode"] = "fxaa"
+			draft["shadow_quality"] = "low"
+			draft["ao"] = false
 			draft["gi_mode"] = "off"
 			draft["reflections"] = false
 			draft["particles"] = "low"
-			draft["fog"] = true
+			draft["fog"] = false
 		elif i == 2:
 			draft["shadows"] = true
-			draft["aa_mode"] = "taa"
-			draft["shadow_quality"] = "high"
-			draft["ao"] = true
-			draft["gi_mode"] = "ssil"
-			draft["reflections"] = true
-			draft["particles"] = "high"
-			draft["fog"] = true
+			draft["aa_mode"] = "fxaa"
+			draft["shadow_quality"] = "medium"
+			draft["ao"] = false
+			draft["gi_mode"] = "off"
+			draft["reflections"] = false
+			draft["particles"] = "low"
+			draft["fog"] = false
 		else:
 			draft["shadows"] = true
-			draft["aa_mode"] = "taa_msaa"
-			draft["shadow_quality"] = "ultra"
-			draft["ao"] = true
-			draft["gi_mode"] = "sdfgi"
-			draft["reflections"] = true
-			draft["particles"] = "high"
-			draft["fog"] = true
+			draft["aa_mode"] = "fxaa"
+			draft["shadow_quality"] = "high"
+			draft["ao"] = false
+			draft["gi_mode"] = "off"
+			draft["reflections"] = false
+			draft["particles"] = "low"
+			draft["fog"] = false
 		_show_tab("video")
 	)
 	content.add_child(quality)

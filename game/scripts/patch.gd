@@ -1,6 +1,6 @@
 extends Node
 
-const VERSION := "0.6.2"
+const VERSION := "0.6.4"
 const FEED := "https://raw.githubusercontent.com/EJH-BAE/strifes-of-legends/main/update.json"
 
 var label: Label

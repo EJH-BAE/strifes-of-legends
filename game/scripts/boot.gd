@@ -16,9 +16,15 @@ func _ready() -> void:
 	Settings.apply_window()
 	_apply_icon()
 	var direct = DisplayServer.get_name() == "headless"
+	var server = false
 	for arg in OS.get_cmdline_user_args():
 		if str(arg).begins_with("--shot="):
 			direct = true
+		if str(arg) == "--server":
+			server = true
+	if server:
+		SolNet.begin_server()
+		return
 	if direct:
 		get_tree().change_scene_to_file.call_deferred("res://match.tscn")
 		return
@@ -94,81 +100,269 @@ func _process(delta: float) -> void:
 		if role_wait <= 0.0:
 			role_wait = 1.15
 			_ai_take_role()
+	if matching:
+		match_secs += delta
+		if match_clock:
+			var secs := int(match_secs)
+			match_clock.text = "%d:%02d" % [int(secs / 60.0), secs % 60]
+		match_poll -= delta
+		if match_poll <= 0.0:
+			match_poll = 1.0
+			_poll_match()
+
+var home_mode := "normal"
+var party_box: HBoxContainer
+var home_toast: Label
+var match_layer: CanvasLayer
+var match_clock: Label
+var matching := false
+var match_secs := 0.0
+var match_poll := 0.0
 
 func _menu() -> void:
+	StrifeAcc.load_progress()
 	var layer := CanvasLayer.new()
 	layer.layer = 5
 	add_child(layer)
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.offset_right = 0
-	root.offset_bottom = 0
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = _font()
 	layer.add_child(root)
-	var center := VBoxContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.offset_left = 48
-	center.offset_top = 28
-	center.offset_right = -48
-	center.offset_bottom = -28
-	center.alignment = BoxContainer.ALIGNMENT_BEGIN
-	center.add_theme_constant_override("separation", 8)
-	root.add_child(center)
-	center.add_child(_logo(64))
+	var top := HBoxContainer.new()
+	top.position = Vector2(28, 18)
+	top.add_theme_constant_override("separation", 12)
+	root.add_child(top)
+	top.add_child(_logo(48))
+	var title_box := VBoxContainer.new()
+	top.add_child(title_box)
 	var kicker := Label.new()
 	kicker.text = "STRIFES OF LEGENDS"
-	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	kicker.add_theme_font_size_override("font_size", 32)
+	kicker.add_theme_font_size_override("font_size", 26)
 	kicker.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
-	center.add_child(kicker)
+	title_box.add_child(kicker)
 	var sub := Label.new()
-	sub.text = "분쟁의 전설"
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.text = "전설의 전장"
 	sub.add_theme_color_override("font_color", Color(0.75, 0.68, 0.55))
-	center.add_child(sub)
-	var name_label := Label.new()
-	name_label.text = StrifeAcc.current() if StrifeAcc.logged_in() else Settings.player_name
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center.add_child(name_label)
-	Settings.changed.connect(func(): name_label.text = Settings.player_name)
-	var mode := Label.new()
-	mode.text = "The Legends' Battleground  ·  전설의 전장"
-	mode.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mode.add_theme_color_override("font_color", Color(0.78, 0.7, 0.55))
-	center.add_child(mode)
+	title_box.add_child(sub)
+	var ident := Label.new()
+	ident.text = "%s   Lv.%d   %s" % [StrifeAcc.current(), StrifeAcc.account_level, StrifeAcc.rank_text()]
+	ident.position = Vector2(420, 28)
+	ident.add_theme_font_size_override("font_size", 18)
+	ident.add_theme_color_override("font_color", Color(0.9, 0.86, 0.74))
+	root.add_child(ident)
+	var foot := HBoxContainer.new()
+	foot.position = Vector2(900, 22)
+	foot.add_theme_constant_override("separation", 6)
+	root.add_child(foot)
+	for pair in [["친구", _open_friends], ["알림", _open_notes], ["설정", _open_settings], ["종료", func(): get_tree().quit()]]:
+		var fb := _menu_button(pair[0], pair[1])
+		fb.custom_minimum_size = Vector2(72, 32)
+		foot.add_child(fb)
+	home_toast = Label.new()
+	home_toast.position = Vector2(36, 88)
+	home_toast.add_theme_color_override("font_color", Color(0.8, 0.9, 0.65))
+	root.add_child(home_toast)
 	var patch_label := Label.new()
-	patch_label.text = "버전 확인"
-	patch_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	patch_label.text = ""
+	patch_label.position = Vector2(36, 112)
 	patch_label.add_theme_color_override("font_color", Color(0.78, 0.7, 0.55))
-	center.add_child(patch_label)
+	root.add_child(patch_label)
 	var patch := preload("res://scripts/patch.gd").new()
 	add_child(patch)
 	patch.start(self, patch_label)
-	var group := Label.new()
-	group.text = "일반"
-	group.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	group.add_theme_color_override("font_color", Color(0.78, 0.7, 0.55))
-	center.add_child(group)
-	center.add_child(_mode_button("AI 대전  1v1", "혼자 상대 한 명", "duel"))
-	center.add_child(_mode_button("랭크  5v5", "금지 후 선택", "ranked"))
-	center.add_child(_mode_button("일반  5v5", "금지 없이 바로 선택", "normal"))
-	var arcade := Label.new()
-	arcade.text = "아케이드"
-	arcade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	arcade.add_theme_color_override("font_color", Color(0.78, 0.7, 0.55))
-	center.add_child(arcade)
-	center.add_child(_mode_button("Swift Strike", "빠른 진행", "swift"))
-	var foot := HBoxContainer.new()
-	foot.add_theme_constant_override("separation", 8)
-	center.add_child(foot)
-	for pair in [["친구", _open_friends], ["알림", _open_notes], ["설정", _open_settings], ["계정 전환", _switch_account]]:
-		var fb := _menu_button(pair[0], pair[1])
-		fb.custom_minimum_size = Vector2(120, 36)
-		foot.add_child(fb)
-	var quit_b := _menu_button("종료", func(): get_tree().quit())
-	quit_b.custom_minimum_size = Vector2(90, 36)
-	foot.add_child(quit_b)
+	var dock := Panel.new()
+	dock.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	dock.offset_top = -250
+	dock.offset_bottom = -16
+	dock.offset_left = 24
+	dock.offset_right = -24
+	var dock_style := StyleBoxFlat.new()
+	dock_style.bg_color = Color(0.03, 0.04, 0.07, 0.88)
+	dock_style.border_color = Color(0.83, 0.71, 0.51, 0.7)
+	dock_style.set_border_width_all(1)
+	dock.add_theme_stylebox_override("panel", dock_style)
+	root.add_child(dock)
+	var play := Label.new()
+	play.text = "플레이"
+	play.position = Vector2(16, 8)
+	play.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
+	dock.add_child(play)
+	var scroller := ScrollContainer.new()
+	scroller.position = Vector2(16, 36)
+	scroller.size = Vector2(1100, 64)
+	scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dock.add_child(scroller)
+	var modes := HBoxContainer.new()
+	modes.add_theme_constant_override("separation", 8)
+	scroller.add_child(modes)
+	var mode_rows = [["duel", "일반", "AI 대전 1v1"], ["normal", "일반", "5v5"], ["ranked", "랭크", "5v5"], ["swift", "아케이드", "Swift Strike"]]
+	for item in mode_rows:
+		var mode_id: String = item[0]
+		var card := Button.new()
+		card.text = "%s\n%s" % [item[1], item[2]]
+		card.custom_minimum_size = Vector2(180, 56)
+		card.set_meta("mode_id", mode_id)
+		card.pressed.connect(_pick_mode.bind(card, modes))
+		modes.add_child(card)
+	_paint_modes(modes)
+	party_box = HBoxContainer.new()
+	party_box.position = Vector2(16, 112)
+	party_box.add_theme_constant_override("separation", 8)
+	dock.add_child(party_box)
+	var start := _menu_button("매치 시작", _start_match)
+	start.position = Vector2(860, 168)
+	start.custom_minimum_size = Vector2(220, 48)
+	dock.add_child(start)
+	_paint_party()
+
+func _pick_mode(card: Button, modes: HBoxContainer) -> void:
+	home_mode = str(card.get_meta("mode_id", "normal"))
+	Sfx.play("click")
+	_paint_modes(modes)
+
+func _paint_modes(modes: HBoxContainer) -> void:
+	for child in modes.get_children():
+		if child is Button:
+			var btn := child as Button
+			var on := str(btn.get_meta("mode_id", "")) == home_mode
+			btn.modulate = Color(1, 0.92, 0.7) if on else Color(0.7, 0.7, 0.7)
+
+func _mode_title(mode_id: String) -> String:
+	if mode_id == "ranked":
+		return "랭크"
+	if mode_id == "swift":
+		return "아케이드"
+	if mode_id == "duel":
+		return "일반"
+	return "일반"
+
+func _mode_blurb(mode_id: String) -> String:
+	if mode_id == "duel":
+		return "AI 대전 1v1"
+	if mode_id == "ranked":
+		return "5v5"
+	if mode_id == "swift":
+		return "Swift Strike"
+	return "5v5"
+
+func _paint_party() -> void:
+	if party_box == null:
+		return
+	for child in party_box.get_children():
+		party_box.remove_child(child)
+		child.queue_free()
+	var members: Array = []
+	var state: Dictionary = SolNet.party("state")
+	var group = state.get("members", [])
+	if group is Array:
+		for item in group:
+			if typeof(item) != TYPE_DICTIONARY:
+				continue
+			var row: Dictionary = item
+			if str(row.get("member_status", "")) == "joined":
+				members.append(str(row.get("username", "")))
+	if members.is_empty():
+		members.append(StrifeAcc.current())
+	for i in 5:
+		if i < members.size():
+			var who: String = members[i]
+			var card := _menu_button(who, _kick_member.bind(who))
+			card.custom_minimum_size = Vector2(140, 48)
+			party_box.add_child(card)
+		else:
+			var add := _menu_button("+", _invite_friend)
+			add.custom_minimum_size = Vector2(72, 48)
+			party_box.add_child(add)
+
+func _kick_member(_who: String) -> void:
+	_open_friends()
+
+func _invite_friend() -> void:
+	_open_friends()
+
+func _start_match() -> void:
+	if home_mode == "ranked" and StrifeAcc.account_level < 55:
+		home_toast.text = "랭크는 55레벨부터 가능합니다."
+		Sfx.play("error")
+		return
+	var queued: Dictionary = StrifeAcc.function_call("strife-queue", {"op": "enqueue", "mode": home_mode})
+	if str(queued.get("error", "")) != "":
+		home_toast.text = str(queued.get("error", ""))
+		Sfx.play("error")
+		return
+	home_toast.text = "매칭을 시작했습니다."
+	matching = true
+	match_secs = 0.0
+	match_poll = 0.2
+	_show_matching()
+
+func _show_matching() -> void:
+	if match_layer != null and is_instance_valid(match_layer):
+		match_layer.queue_free()
+	match_layer = CanvasLayer.new()
+	match_layer.layer = 40
+	add_child(match_layer)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.theme = _font()
+	match_layer.add_child(dim)
+	var title := Label.new()
+	title.text = "매칭 중"
+	title.set_anchors_preset(Control.PRESET_CENTER)
+	title.offset_left = -160
+	title.offset_top = -40
+	title.offset_right = 160
+	title.offset_bottom = 0
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
+	match_layer.add_child(title)
+	match_clock = Label.new()
+	match_clock.set_anchors_preset(Control.PRESET_CENTER)
+	match_clock.offset_left = -80
+	match_clock.offset_top = 8
+	match_clock.offset_right = 80
+	match_clock.offset_bottom = 40
+	match_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	match_clock.add_theme_font_size_override("font_size", 22)
+	match_clock.add_theme_color_override("font_color", Color(0.9, 0.88, 0.8))
+	match_clock.text = "0:00"
+	match_layer.add_child(match_clock)
+	var close := Button.new()
+	close.text = "X"
+	close.set_anchors_preset(Control.PRESET_CENTER)
+	close.offset_left = 150
+	close.offset_top = -48
+	close.offset_right = 198
+	close.offset_bottom = -8
+	close.pressed.connect(_cancel_match)
+	match_layer.add_child(close)
+
+func _cancel_match() -> void:
+	matching = false
+	StrifeAcc.function_call("strife-queue", {"op": "cancel"})
+	if match_layer != null and is_instance_valid(match_layer):
+		match_layer.queue_free()
+	match_layer = null
+	if home_toast:
+		home_toast.text = "매칭을 취소했습니다."
+
+func _poll_match() -> void:
+	var res: Dictionary = StrifeAcc.function_call("strife-queue", {"op": "poll"})
+	if str(res.get("error", "")) != "":
+		_cancel_match()
+		if home_toast:
+			home_toast.text = str(res.get("error", ""))
+		return
+	if not bool(res.get("ready", false)):
+		return
+	matching = false
+	if match_layer != null and is_instance_valid(match_layer):
+		match_layer.queue_free()
+	_enter_match(str(res.get("host", "")), int(res.get("port", 7777)))
 
 func _account() -> void:
 	var layer := CanvasLayer.new()
@@ -280,7 +474,8 @@ func _fill_friends(list: VBoxContainer, err: Label, message: String, ok: bool) -
 	if friends.is_empty():
 		_friend_heading(list, "친구 없음")
 	for who in friends:
-		_friend_heading(list, str(who))
+		var fname := str(who)
+		list.add_child(_friend_action("%s  파티 초대" % fname, fname, "party", list, err))
 	var waiting := StrifeAcc.outgoing_names()
 	if not waiting.is_empty():
 		_friend_heading(list, "응답 대기  %s" % ", ".join(waiting))
@@ -296,12 +491,102 @@ func _friend_action(text: String, who: String, action: String, list: VBoxContain
 	var id := who
 	var act := action
 	return _menu_button(text, func():
-		var msg := StrifeAcc.accept_friend(id) if act == "accept" else StrifeAcc.decline_friend(id)
+		var msg := ""
+		if act == "accept":
+			msg = StrifeAcc.accept_friend(id)
+		elif act == "party":
+			var state: Dictionary = SolNet.party("state")
+			if state.get("party") == null:
+				state = SolNet.party("create", {"mode": "normal"})
+			if str(state.get("error", "")) != "":
+				msg = str(state.get("error", ""))
+			else:
+				var invited: Dictionary = SolNet.party("invite", {"username": id})
+				msg = str(invited.get("error", ""))
+				if msg == "":
+					msg = ""
+		else:
+			msg = StrifeAcc.decline_friend(id)
 		var ok := msg == ""
 		_fill_friends(list, err, "처리했습니다." if ok else msg, ok)
 		if not ok:
 			Sfx.play("error")
 	)
+
+func _open_party() -> void:
+	if not StrifeAcc.logged_in():
+		return
+	var layer := _overlay("파티")
+	var box: VBoxContainer = layer.get_node("Root/Box")
+	var info := Label.new()
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.custom_minimum_size = Vector2(460, 0)
+	box.add_child(info)
+	var roles := HBoxContainer.new()
+	box.add_child(roles)
+	for role_name in ["top", "jungle", "mid", "adc", "support"]:
+		var picked: String = role_name
+		var btn := _menu_button(picked, func():
+			var res: Dictionary = SolNet.party("role", {"role": picked})
+			info.text = str(res.get("error", "포지션을 골랐습니다."))
+		)
+		btn.custom_minimum_size = Vector2(84, 36)
+		roles.add_child(btn)
+	var members := Label.new()
+	members.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(members)
+	var refresh := func() -> void:
+		var state: Dictionary = SolNet.party("state")
+		if str(state.get("error", "")) != "":
+			info.text = str(state.get("error", ""))
+			return
+		var party = state.get("party")
+		if party == null:
+			info.text = "파티가 없습니다. 모드를 고르면 파티가 만들어집니다."
+			members.text = ""
+			return
+		var party_row: Dictionary = party
+		var lines: PackedStringArray = []
+		var group = state.get("members", [])
+		if group is Array:
+			for item in group:
+				if typeof(item) != TYPE_DICTIONARY:
+					continue
+				var row: Dictionary = item
+				lines.append("%s  %s  %s" % [str(row.get("username", "")), str(row.get("role", "")), str(row.get("member_status", ""))])
+		members.text = "\n".join(lines)
+		info.text = "모드 %s  ·  %s" % [str(party_row.get("mode", "")), str(party_row.get("status", ""))]
+		var live = state.get("match")
+		if live is Dictionary and str(live.get("host", "")) != "":
+			_enter_match(str(live.get("host", "")), int(live.get("port", 7777)))
+			layer.queue_free()
+	for mode_name in ["duel", "ranked", "normal", "swift"]:
+		var mode_pick: String = mode_name
+		box.add_child(_menu_button(mode_pick, func():
+			var res: Dictionary = SolNet.party("create", {"mode": mode_pick})
+			info.text = str(res.get("error", "파티를 만들었습니다."))
+			refresh.call()
+		))
+	box.add_child(_menu_button("경기 시작", func():
+		var res: Dictionary = SolNet.party("start")
+		if str(res.get("error", "")) != "":
+			info.text = str(res.get("error", ""))
+			Sfx.play("error")
+			return
+		_enter_match(str(res.get("host", "")), int(res.get("port", 7777)))
+		layer.queue_free()
+	))
+	box.add_child(_menu_button("파티 나가기", func():
+		SolNet.party("leave")
+		refresh.call()
+	))
+	refresh.call()
+
+func _enter_match(host: String, port: int) -> void:
+	var err: String = SolNet.connect_match(host, port)
+	if err != "":
+		return
+	get_tree().change_scene_to_file("res://match.tscn")
 
 func _open_notes() -> void:
 	if not StrifeAcc.logged_in():
@@ -317,7 +602,17 @@ func _open_notes() -> void:
 		return
 	for line in notes:
 		var parts = str(line).split("|", false, 2)
+		var kind = parts[0] if parts.size() > 0 else ""
 		var text = parts[2] if parts.size() > 2 else str(line)
+		if kind == "party":
+			var party_id: String = text
+			var from_name: String = parts[1] if parts.size() > 1 else ""
+			box.add_child(_menu_button("%s 파티 참가" % from_name, func():
+				SolNet.party("join", {"party_id": party_id})
+				layer.queue_free()
+				_open_party()
+			))
+			continue
 		var lab := Label.new()
 		lab.text = text
 		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -412,7 +707,11 @@ func _mode_button(title: String, blurb: String, mode_name: String) -> Button:
 	b.custom_minimum_size = Vector2(280, 44)
 	b.pressed.connect(func():
 		Sfx.play("click")
-		_open_roles(mode_name)
+		var mode_pick := mode_name
+		var res: Dictionary = SolNet.party("create", {"mode": mode_pick})
+		if str(res.get("error", "")) != "":
+			return
+		_open_party()
 	)
 	return b
 

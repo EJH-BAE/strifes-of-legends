@@ -304,6 +304,93 @@ func _pick_for(role: String, used: Dictionary) -> Dictionary:
 			return row
 	return Legends.by_id("orbel")
 
+func install_match(mode_name: String, members: Array) -> void:
+	queue(mode_name)
+	reset()
+	var roles = ["top", "jungle", "mid", "adc", "support"]
+	var used := {}
+	var taken := {}
+	blue.clear()
+	for i in 5:
+		blue.append({"legend": "", "role": roles[i], "username": "", "player": false})
+	for member in members:
+		if typeof(member) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = member
+		var role := str(row.get("role", "mid"))
+		var idx := roles.find(role)
+		if idx < 0 or taken.has(idx):
+			idx = -1
+			for j in 5:
+				if not taken.has(j):
+					idx = j
+					break
+		if idx < 0:
+			continue
+		taken[idx] = true
+		var pick := _pick_for(roles[idx], used)
+		used[str(pick.get("id", ""))] = true
+		blue[idx] = {
+			"legend": str(pick.get("id", "orbel")),
+			"role": roles[idx],
+			"username": str(row.get("username", "")),
+			"player": true,
+		}
+	var names = BOT_NAMES.duplicate()
+	names.shuffle()
+	var ni := 0
+	for i in 5:
+		if bool(blue[i].get("player", false)):
+			continue
+		var pick := _pick_for(roles[i], used)
+		used[str(pick.get("id", ""))] = true
+		blue[i] = {
+			"legend": str(pick.get("id", "orbel")),
+			"role": roles[i],
+			"username": names[ni],
+			"player": false,
+		}
+		ni += 1
+	red.clear()
+	for i in 5:
+		var pick := _pick_for(roles[i], used)
+		used[str(pick.get("id", ""))] = true
+		red.append({
+			"legend": str(pick.get("id", "kaela")),
+			"role": roles[i],
+			"username": names[ni],
+			"player": false,
+		})
+		ni += 1
+	roster_ready = true
+
+func install_roster(mode_name: String, roster: Array) -> void:
+	queue(mode_name)
+	reset()
+	var used := {}
+	for item in roster:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = item
+		var role := str(row.get("role", "mid"))
+		var legend := str(row.get("legend", ""))
+		if legend == "":
+			var pick := _pick_for(role, used)
+			legend = str(pick.get("id", "orbel"))
+			used[legend] = true
+		var slot := {
+			"legend": legend,
+			"role": role,
+			"username": str(row.get("username", "")),
+			"player": bool(row.get("human", false)),
+			"level": int(row.get("level", 1)),
+		}
+		if str(row.get("team", "blue")) == "red":
+			red.append(slot)
+		else:
+			blue.append(slot)
+	roster_ready = blue.size() > 0 and red.size() > 0
+
 func slot(team: String, index: int) -> Dictionary:
 	var list = blue if team == "blue" else red
 	if index < 0 or index >= list.size():

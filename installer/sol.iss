@@ -1,5 +1,5 @@
 #define MyAppName "Strifes of Legends"
-#define MyAppVersion "0.6.2"
+#define MyAppVersion "0.6.4"
 #define MyAppPublisher "EJH-BAE"
 #define MyAppURL "https://github.com/EJH-BAE/strifes-of-legends"
 

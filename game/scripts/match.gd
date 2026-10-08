@@ -11,6 +11,7 @@ class Bolt:
 	var disable = 1.0
 	var reach = 850.0
 	var pierce = true
+	var caster = null
 
 class Shot:
 	var node: MeshInstance3D
@@ -132,6 +133,11 @@ var focus_unit = null
 var score_held = false
 var score_layer: CanvasLayer
 var score_rows = {}
+var nid_seq := 0
+var net_label: Label
+var peer_units := {}
+var net_puppets := {}
+var snap_acc := 0.0
 var minimap: TextureRect
 var minimap_dots: Control
 var fps_label: Label
@@ -188,7 +194,18 @@ var cursor_attack: ImageTexture
 var cursor_cast: ImageTexture
 
 func _ready() -> void:
+	add_to_group("match")
 	cam_lock = bool(Settings.camera_locked)
+	if SolNet.remote_client():
+		_world()
+		_hud()
+		_pause_ui()
+		_score_ui()
+		Settings.changed.connect(_on_settings)
+		_on_settings()
+		_make_cursors()
+		_make_order_markers()
+		return
 	_world()
 	_spawn_player()
 	_spawn_structures()
@@ -218,7 +235,11 @@ func _ready() -> void:
 					break
 	if Draft.mode == "swift":
 		wave_in = 8.0
-	if DisplayServer.get_name() == "headless":
+	if SolNet.serving():
+		for peer in SolNet.owners.keys():
+			var user: Dictionary = SolNet.owners[peer]
+			bind_remote(int(peer), str(user.get("username", "")))
+	if DisplayServer.get_name() == "headless" and not SolNet.serving():
 		_run_headless_checks()
 
 func _world() -> void:
@@ -234,7 +255,7 @@ func _world() -> void:
 	psky.sun_angle_max = 24.0
 	psky.sun_curve = 0.08
 	sky.sky_material = psky
-	sky.radiance_size = Sky.RADIANCE_SIZE_1024
+	sky.radiance_size = Sky.RADIANCE_SIZE_256
 	environment.sky = sky
 	environment.background_mode = Environment.BG_SKY
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -243,33 +264,16 @@ func _world() -> void:
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.tonemap_exposure = 0.55
 	environment.tonemap_white = 4.0
-	environment.glow_enabled = true
-	environment.glow_intensity = 0.5
-	environment.glow_strength = 1.0
-	environment.glow_bloom = 0.04
-	environment.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-	environment.glow_hdr_threshold = 1.1
-	environment.glow_hdr_scale = 2.0
-	environment.ssao_enabled = true
-	environment.ssao_radius = 64.0
-	environment.ssao_intensity = 1.15
-	environment.ssao_power = 1.7
-	environment.ssao_detail = 0.55
-	environment.ssao_horizon = 0.08
-	environment.ssil_enabled = true
-	environment.ssil_radius = 110.0
-	environment.ssil_intensity = 0.85
-	environment.ssr_enabled = true
-	environment.ssr_max_steps = 96
-	environment.ssr_fade_in = 0.08
-	environment.ssr_fade_out = 1.4
-	environment.ssr_depth_tolerance = 64.0
+	environment.glow_enabled = false
+	environment.ssao_enabled = false
+	environment.ssil_enabled = false
+	environment.ssr_enabled = false
 	environment.adjustment_enabled = true
 	environment.adjustment_brightness = 0.78
 	environment.adjustment_contrast = 1.14
 	environment.adjustment_saturation = 1.2
-	environment.volumetric_fog_enabled = true
-	environment.volumetric_fog_density = 0.00016
+	environment.volumetric_fog_enabled = false
+	environment.volumetric_fog_density = 0.0
 	environment.volumetric_fog_albedo = Color(0.9, 0.92, 1.0)
 	environment.volumetric_fog_emission = Color(0.02, 0.025, 0.04)
 	environment.volumetric_fog_length = 3200.0
@@ -284,17 +288,14 @@ func _world() -> void:
 	sun.rotation_degrees = Vector3(-52, 142, 0)
 	sun.light_energy = 0.62
 	sun.light_color = Color(1.0, 0.94, 0.84)
-	sun.light_angular_distance = 0.9
-	sun.light_volumetric_fog_energy = 1.5
+	sun.light_angular_distance = 0.0
+	sun.light_volumetric_fog_energy = 0.0
 	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_blend_splits = true
-	sun.directional_shadow_split_1 = 0.08
-	sun.directional_shadow_split_2 = 0.22
-	sun.directional_shadow_split_3 = 0.5
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_blend_splits = false
 	sun.shadow_bias = 0.08
 	sun.shadow_normal_bias = 2.4
-	sun.directional_shadow_max_distance = 8600.0
+	sun.directional_shadow_max_distance = 2200.0
 	sun.directional_shadow_fade_start = 0.9
 	add_child(sun)
 	var fill = DirectionalLight3D.new()
@@ -304,14 +305,6 @@ func _world() -> void:
 	fill.shadow_enabled = false
 	fill.light_specular = 0.2
 	add_child(fill)
-	var probe = ReflectionProbe.new()
-	probe.size = Vector3(15200, 1200, 15200)
-	probe.position = Vector3(WORLD * 0.5, 300, WORLD * 0.5)
-	probe.update_mode = ReflectionProbe.UPDATE_ONCE
-	probe.intensity = 0.6
-	probe.box_projection = true
-	probe.interior = false
-	add_child(probe)
 	var map = Rift.build(self)
 	WORLD = map["size"]
 	SPAWN = map["spawn"]
@@ -389,6 +382,7 @@ func _spawn_player() -> void:
 		lane_pts = _jungle_path(false)
 	player = _make_champ("blue", str(def["name"]), role_name, str(def["style"]), def["tint"], SPAWN, lane_pts, 0, float(def["ms"]), float(def["ad"]), float(def["reach"]), float(def["asp"]), float(def["hp"]), float(def["armor"]), float(def["mr"]))
 	_apply_legend(player, def, str(slot.get("username", Draft.player_name())), true)
+	_apply_level(player, slot)
 	Sfx.set_voice(str(player.style))
 	_sync_charges()
 
@@ -437,7 +431,7 @@ func _spawn_enemy_hero() -> void:
 	var red_off = [Vector3(0, 0, 0), Vector3(180, 0, -80), Vector3(-80, 0, 160), Vector3(80, 0, 80), Vector3(-160, 0, -40)]
 	for i in Draft.blue.size():
 		var slot = Draft.blue[i]
-		if bool(slot.get("player", false)):
+		if bool(slot.get("player", false)) and player != null and str(slot.get("username", "")) == str(player.username):
 			continue
 		_spawn_slot("blue", slot, blue_home + blue_off[mini(i, 4)], false)
 	for i in Draft.red.size():
@@ -464,6 +458,16 @@ func _spawn_slot(team: String, slot: Dictionary, pos: Vector3, red: bool) -> voi
 			lane_pts = _flipped(lanes["bot"])
 	var u = _make_champ(team, str(def["name"]), role_name, str(def["style"]), def["tint"], pos, lane_pts, 0, float(def["ms"]), float(def["ad"]), float(def["reach"]), float(def["asp"]), float(def["hp"]), float(def["armor"]), float(def["mr"]))
 	_apply_legend(u, def, str(slot.get("username", def["name"])), false)
+	_apply_level(u, slot)
+
+func _apply_level(u, slot: Dictionary) -> void:
+	var lv := maxi(1, int(slot.get("level", 1)))
+	u.level = lv
+	var mul := 1.0 + float(lv - 1) * 0.04
+	u.ad = maxf(1.0, u.ad * mul)
+	u.vital.max_hp = maxf(1.0, u.vital.max_hp * mul)
+	u.vital.hp = u.vital.max_hp
+	u.base_max_hp = u.vital.max_hp
 
 func _flipped(pts: Array) -> Array:
 	var copy = pts.duplicate()
@@ -570,6 +574,8 @@ func _make_unit(kind: String, team: String, uname: String, pos: Vector3, radius:
 	u.home = pos
 	u.position = pos
 	add_child(u)
+	nid_seq += 1
+	u.set_meta("nid", nid_seq)
 	u.basic_attack.connect(_on_basic.bind(u))
 	units.append(u)
 	return u
@@ -643,6 +649,17 @@ func _hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = _font()
 	ui.add_child(root)
+	net_label = Label.new()
+	net_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	net_label.offset_left = -220
+	net_label.offset_top = -28
+	net_label.offset_right = -12
+	net_label.offset_bottom = -8
+	net_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	net_label.add_theme_font_size_override("font_size", 13)
+	net_label.add_theme_color_override("font_color", Color(0.9, 0.86, 0.72, 0.9))
+	net_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(net_label)
 	death_label = Label.new()
 	death_label.visible = false
 	death_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -866,56 +883,64 @@ func _score_ui() -> void:
 	var panel = Panel.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.offset_left = -470
-	panel.offset_right = 470
-	panel.offset_top = -250
-	panel.offset_bottom = 250
+	panel.offset_left = -560
+	panel.offset_right = 560
+	panel.offset_top = -320
+	panel.offset_bottom = 320
 	var sb = StyleBoxFlat.new()
 	sb.bg_color = Color(0.04, 0.045, 0.06, 0.94)
 	sb.border_color = Color(0.83, 0.71, 0.51, 0.9)
 	sb.set_border_width_all(1)
 	panel.add_theme_stylebox_override("panel", sb)
 	root.add_child(panel)
+	var table := VBoxContainer.new()
+	table.position = Vector2(16, 12)
+	table.custom_minimum_size = Vector2(1088, 0)
+	table.add_theme_constant_override("separation", 4)
+	panel.add_child(table)
+	var top := HBoxContainer.new()
+	table.add_child(top)
 	var title = Label.new()
 	title.text = "전황"
-	title.position = Vector2(20, 12)
-	title.add_theme_font_size_override("font_size", 24)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
-	panel.add_child(title)
+	top.add_child(title)
 	var clock_lab = Label.new()
-	clock_lab.name = "clock"
-	clock_lab.position = Vector2(760, 16)
-	clock_lab.size = Vector2(160, 24)
+	clock_lab.custom_minimum_size = Vector2(120, 0)
 	clock_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	clock_lab.add_theme_color_override("font_color", Color(0.8, 0.76, 0.66))
-	panel.add_child(clock_lab)
-	var y = 54.0
+	top.add_child(clock_lab)
+	score_rows["clock"] = clock_lab
+	var headers = ["소환사", "레전드", "역할", "레벨", "처치", "죽음", "도움", "CS", "골드"]
+	var widths = [170, 150, 80, 60, 70, 70, 70, 70, 90]
 	for team in ["blue", "red"]:
 		var head = Label.new()
-		head.name = "head_" + team
-		head.position = Vector2(20, y)
-		head.add_theme_font_size_override("font_size", 18)
+		head.add_theme_font_size_override("font_size", 16)
 		head.add_theme_color_override("font_color", Color(0.55, 0.75, 1) if team == "blue" else Color(1, 0.45, 0.4))
-		panel.add_child(head)
-		y += 26
-		var cols = Label.new()
-		cols.text = "%-14s %-8s %6s %6s %6s %8s %6s" % ["레전드", "역할", "처치", "죽음", "도움", "CS", "골드"]
-		cols.position = Vector2(20, y)
-		cols.add_theme_color_override("font_color", Color(0.6, 0.58, 0.52))
-		panel.add_child(cols)
-		y += 22
-		for i in 5:
-			var row = Label.new()
-			row.name = "%s_%d" % [team, i]
-			row.position = Vector2(20, y)
-			row.size = Vector2(900, 22)
-			panel.add_child(row)
-			score_rows["%s_%d" % [team, i]] = row
-			y += 22
-		y += 18
-	score_rows["clock"] = clock_lab
-	score_rows["head_blue"] = panel.get_node("head_blue")
-	score_rows["head_red"] = panel.get_node("head_red")
+		table.add_child(head)
+		score_rows["head_" + team] = head
+		var grid := GridContainer.new()
+		grid.columns = headers.size()
+		table.add_child(grid)
+		for i in headers.size():
+			grid.add_child(_score_cell(headers[i], widths[i], Color(0.62, 0.58, 0.5), true))
+		for r in 5:
+			for c in headers.size():
+				var cell := _score_cell("", widths[c], Color(0.9, 0.88, 0.8), false)
+				grid.add_child(cell)
+				score_rows["%s_%d_%d" % [team, r, c]] = cell
+
+func _score_cell(text: String, width: int, color: Color, header: bool) -> Label:
+	var lab := Label.new()
+	lab.text = text
+	lab.custom_minimum_size = Vector2(width, 26 if header else 24)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if header else HORIZONTAL_ALIGNMENT_LEFT
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.add_theme_font_size_override("font_size", 14 if header else 15)
+	lab.add_theme_color_override("font_color", color)
+	lab.clip_text = true
+	return lab
 
 func _refresh_scoreboard() -> void:
 	if score_layer == null:
@@ -933,24 +958,23 @@ func _refresh_scoreboard() -> void:
 		for u in members:
 			tk += u.kills
 			tg += gold if u == player else u.purse
-		score_rows["head_" + team].text = "%s   처치 %d   골드 %d" % ["푸른 팀" if team == "blue" else "붉은 팀", tk, tg]
+		score_rows["head_" + team].text = "%s    처치 %d    골드 %d" % ["푸른 팀" if team == "blue" else "붉은 팀", tk, tg]
 		for i in 5:
-			var row: Label = score_rows["%s_%d" % [team, i]]
-			if i >= members.size():
-				row.text = ""
-				continue
-			var u = members[i]
-			var who = u.unit_name
-			if str(u.username) != "":
-				who = "%s · %s" % [u.username, u.unit_name]
-			if u == player:
-				who = "%s (나)" % who
-			var g = gold if u == player else u.purse
-			var c = cs if u == player else u.cs
-			row.text = "%-14s %-8s %6d %6d %6d %8d %6d" % [who, roles.get(u.role, u.role), u.kills, u.deaths, u.assists, c, g]
-			row.add_theme_color_override("font_color", Color(1, 0.96, 0.85) if u == player else Color(0.86, 0.84, 0.78))
-			if u.dead:
-				row.add_theme_color_override("font_color", Color(0.55, 0.5, 0.48))
+			var values = ["", "", "", "", "", "", "", "", ""]
+			var tint = Color(0.45, 0.44, 0.42)
+			if i < members.size():
+				var u = members[i]
+				var summoner = str(u.username) if str(u.username) != "" else u.unit_name
+				if u == player:
+					summoner = "%s (나)" % summoner
+				var g = gold if u == player else u.purse
+				var c = cs if u == player else u.cs
+				values = [summoner, u.unit_name, str(roles.get(u.role, u.role)), str(u.level), str(u.kills), str(u.deaths), str(u.assists), str(c), str(g)]
+				tint = Color(0.55, 0.5, 0.48) if u.dead else (Color(1, 0.96, 0.85) if u == player else Color(0.9, 0.88, 0.82))
+			for c in values.size():
+				var cell: Label = score_rows["%s_%d_%d" % [team, i, c]]
+				cell.text = values[c]
+				cell.add_theme_color_override("font_color", tint)
 
 func _minimap_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
@@ -1164,6 +1188,8 @@ func _on_settings() -> void:
 	_apply_graphics()
 	if bars_root:
 		bars_root.visible = Settings.show_bars
+	if player == null or name_label == null:
+		return
 	var legend_name = str(player_def.get("name", player.unit_name)) if not player_def.is_empty() else player.unit_name
 	name_label.text = "%s  ·  %s" % [legend_name, player.username if player.username != "" else Settings.player_name]
 
@@ -1171,8 +1197,6 @@ func _apply_graphics() -> void:
 	if environment == null or sun == null:
 		return
 	var vp = get_viewport()
-	var q = Settings.quality
-	var level = {"low": 0, "medium": 1, "high": 2, "ultra": 3}.get(q, 2)
 	match Settings.aa_mode:
 		"off":
 			vp.msaa_3d = Viewport.MSAA_DISABLED
@@ -1204,31 +1228,19 @@ func _apply_graphics() -> void:
 			vp.use_taa = true
 	vp.scaling_3d_scale = clampf(float(Settings.render_scale), 0.5, 2.0)
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR if Settings.render_scale >= 1.0 else Viewport.SCALING_3D_MODE_FSR2
-	var shadow_sizes = {"low": 2048, "medium": 4096, "high": 8192, "ultra": 16384}
-	RenderingServer.directional_shadow_atlas_set_size(int(shadow_sizes.get(Settings.shadow_quality, 8192)), true)
-	RenderingServer.directional_soft_shadow_filter_set_quality({"low": RenderingServer.SHADOW_QUALITY_SOFT_LOW, "medium": RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM, "high": RenderingServer.SHADOW_QUALITY_SOFT_HIGH, "ultra": RenderingServer.SHADOW_QUALITY_SOFT_ULTRA}.get(Settings.shadow_quality, RenderingServer.SHADOW_QUALITY_SOFT_HIGH))
-	RenderingServer.positional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM if level >= 2 else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+	var shadow_sizes = {"low": 2048, "medium": 2048, "high": 4096, "ultra": 4096}
+	RenderingServer.directional_shadow_atlas_set_size(int(shadow_sizes.get(Settings.shadow_quality, 2048)), true)
+	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+	RenderingServer.positional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
 	sun.shadow_enabled = Settings.shadows
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if level >= 2 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	environment.glow_enabled = level >= 1 and Settings.particles != "off"
-	environment.glow_intensity = [0.0, 0.35, 0.5, 0.65][level]
-	environment.ssao_enabled = Settings.ao and level >= 1
-	environment.ssao_radius = 72.0 if level >= 3 else 48.0
-	environment.ssao_intensity = 1.25 if level >= 3 else 0.9
-	environment.ssil_enabled = Settings.gi_mode != "off" and level >= 2
-	environment.ssil_radius = 140.0 if level >= 3 else 80.0
-	environment.ssil_intensity = 0.95 if level >= 3 else 0.6
-	environment.sdfgi_enabled = Settings.gi_mode == "sdfgi" and level >= 2
-	if environment.sdfgi_enabled:
-		environment.sdfgi_min_cell_size = 6.0
-		environment.sdfgi_cascades = 6
-		environment.sdfgi_y_scale = Environment.SDFGI_Y_SCALE_50_PERCENT
-		environment.sdfgi_energy = 0.9
-		environment.sdfgi_use_occlusion = true
-	environment.ssr_enabled = Settings.reflections and level >= 2
-	environment.volumetric_fog_enabled = Settings.fog and level >= 1
-	environment.volumetric_fog_density = 0.00018 if level >= 3 else 0.0001
-	environment.ssr_depth_tolerance = 80.0 if level >= 3 else 40.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_max_distance = 2200.0
+	environment.glow_enabled = false
+	environment.ssao_enabled = false
+	environment.ssil_enabled = false
+	environment.sdfgi_enabled = false
+	environment.ssr_enabled = false
+	environment.volumetric_fog_enabled = false
 	environment.adjustment_brightness = clampf(float(Settings.brightness), 0.6, 1.6)
 	environment.adjustment_contrast = 1.06
 	environment.adjustment_saturation = 1.12
@@ -1242,6 +1254,18 @@ func _refresh_keys() -> void:
 		item_buttons[i].text = Settings.key_label(Settings.key_of("i%d" % (i + 1)))
 
 func _process(delta: float) -> void:
+	if net_label:
+		net_label.text = "%d ms    %d FPS" % [SolNet.ping_ms, Engine.get_frames_per_second()]
+	if SolNet.remote_client():
+		if player == null:
+			return
+		_follow_camera(delta)
+		_update_hud()
+		_update_bars()
+		if score_held and score_layer:
+			score_layer.visible = true
+			_refresh_scoreboard()
+		return
 	if DisplayServer.get_name() == "headless":
 		return
 	_follow_camera(delta)
@@ -1265,6 +1289,8 @@ func _process(delta: float) -> void:
 			get_tree().quit()
 
 func _physics_process(delta: float) -> void:
+	if SolNet.remote_client():
+		return
 	if paused:
 		return
 	clock += delta
@@ -1294,6 +1320,11 @@ func _physics_process(delta: float) -> void:
 		wave_in = 14.0 if Draft.mode == "swift" else 30.0
 		_spawn_wave("blue")
 		_spawn_wave("red")
+	if SolNet.serving():
+		snap_acc += delta
+		if snap_acc >= 0.1:
+			snap_acc = 0.0
+			SolNet.push_state(_pack_state())
 
 func _tick_player(delta: float) -> void:
 	for k in cd.keys():
@@ -1330,7 +1361,7 @@ func _tick_player(delta: float) -> void:
 			ult = null
 
 func _think(u) -> void:
-	if u.dead:
+	if u.dead or bool(u.get_meta("remote", false)):
 		return
 	if u.kind == "minion":
 		var foe = _minion_focus(u)
@@ -1714,7 +1745,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			aim_pick = false
 		elif _can_act():
 			var who = _pick_unit(get_viewport().get_mouse_position())
-			if who != null and _attackable(who):
+			if SolNet.remote_client():
+				if who != null and _attackable(who):
+					SolNet.cmd({"op": "attack", "id": int(who.get_meta("nid", -1))})
+					_show_attack_marker(who)
+				else:
+					var spot = _mouse_ground()
+					SolNet.cmd({"op": "amove", "x": spot.x, "z": spot.z})
+			elif who != null and _attackable(who):
 				player.command_attack(who)
 				_show_attack_marker(who)
 			else:
@@ -1885,7 +1923,7 @@ func _point_at_range(id: String) -> Vector3:
 func _spell_target(who) -> bool:
 	if who == null or who.dead or who.team == player.team:
 		return false
-	return who.kind == "minion" or who.kind == "champion" or who.kind == "monster"
+	return who.kind == "minion" or who.kind == "champion" or who.kind == "monster" or _structure(who)
 
 func _sync_target_rings() -> void:
 	var show = aim_pick and aim != "" and aim != "amove"
@@ -1956,6 +1994,10 @@ func _champs_only() -> bool:
 	return Input.is_key_pressed(Settings.key_of("champs"))
 
 func _issue_right(ground: Vector3) -> void:
+	if SolNet.remote_client():
+		SolNet.cmd({"op": "move", "x": ground.x, "z": ground.z})
+		_show_move_marker(ground)
+		return
 	var portal = _portal_at(ground)
 	if portal != null and _flat(player.global_position, portal.a) < 220:
 		_enter_portal(player, portal)
@@ -1964,6 +2006,9 @@ func _issue_right(ground: Vector3) -> void:
 	_show_move_marker(ground)
 
 func _begin_cast(id: String, ground: Vector3) -> void:
+	if SolNet.remote_client():
+		SolNet.cmd({"op": "cast", "slot": id, "x": ground.x, "z": ground.z})
+		return
 	if not _can_act():
 		return
 	if skills[id] <= 0:
@@ -2063,6 +2108,7 @@ func _spell_bolt(ground: Vector3, spec: Dictionary, pierce: bool) -> void:
 	bolt.disable = float(spec.get("stun", 0.0))
 	bolt.reach = float(spec.get("reach", 850.0))
 	bolt.pierce = pierce
+	bolt.caster = player
 	bolts.append(bolt)
 	Sfx.play("q")
 
@@ -2258,7 +2304,7 @@ func _spell_cone(ground: Vector3, spec: Dictionary) -> void:
 			continue
 		var dealt: int = u.hurt(dmg, "physical", player)
 		_float(u, str(dealt), Color(0.95, 0.85, 0.6))
-		if stun > 0.0:
+		if stun > 0.0 and not _structure(u):
 			_stun(u, stun)
 		if u.vital.hp <= 0.0:
 			_reward(u)
@@ -2327,11 +2373,12 @@ func _hit_area(point: Vector3, radius: float, dmg: float, stun: float, slow: flo
 			continue
 		var dealt: int = u.hurt(dmg, "magic", player)
 		_float(u, str(dealt), Color(0.95, 0.75, 0.45))
-		if stun > 0.0:
-			_stun(u, stun)
-		if slow > 0.0:
-			u.slow = max(u.slow, slow)
-			u.slow_t = max(u.slow_t, 1.6)
+		if not _structure(u):
+			if stun > 0.0:
+				_stun(u, stun)
+			if slow > 0.0:
+				u.slow = max(u.slow, slow)
+				u.slow_t = max(u.slow_t, 1.6)
 		if u.vital.hp <= 0.0:
 			_reward(u)
 
@@ -2347,7 +2394,10 @@ func _slow_area(point: Vector3, radius: float, amount: float, dur: float) -> voi
 func _foe(u) -> bool:
 	if u == null or u.dead or u.team == player.team:
 		return false
-	return u.kind == "champion" or u.kind == "minion" or u.kind == "monster"
+	return u.kind == "champion" or u.kind == "minion" or u.kind == "monster" or _structure(u)
+
+func _structure(u) -> bool:
+	return u != null and (u.kind == "tower" or u.kind == "nexus" or u.kind == "inhibitor")
 
 func _nearest_enemy(point: Vector3, radius: float):
 	var best = null
@@ -2601,20 +2651,33 @@ func _projectiles(delta: float) -> void:
 			b.extra += step
 		var done = false
 		if blocked(b.pos.x, b.pos.z, 8):
-			if b.first != null and is_instance_valid(b.first):
+			var wall = _structure_at(b.pos.x, b.pos.z, 8.0)
+			if wall != null and wall.team != player.team and not b.hit.has(wall.get_instance_id()):
+				b.hit[wall.get_instance_id()] = true
+				var dealt: int = wall.hurt(b.dmg, "magic", b.caster if b.caster != null else player)
+				_float(wall, str(dealt), Color(0.82, 0.72, 1))
+				if wall.vital.hp <= 0.0:
+					_reward(wall)
+			elif b.first != null and is_instance_valid(b.first):
 				_stun(b.first, b.disable)
 			done = true
 		if not done:
 			for u in units:
-				if u.dead or u.team == "blue" or u.kind == "tower" or u.kind == "nexus" or u.kind == "inhibitor":
+				if u.dead or u.team == player.team:
 					continue
 				if b.hit.has(u.get_instance_id()):
 					continue
-				if _flat(b.pos, u.global_position) > 60.0 + u.radius * 0.45:
+				var reach = _solid_radius(u) + 36.0 if _structure(u) else 60.0 + u.radius * 0.45
+				if _flat(b.pos, u.global_position) > reach:
 					continue
 				b.hit[u.get_instance_id()] = true
-				var dealt: int = u.hurt(b.dmg, "magic", player)
+				var dealt: int = u.hurt(b.dmg, "magic", b.caster if b.caster != null else player)
 				_float(u, str(dealt), Color(0.82, 0.72, 1))
+				if u.vital.hp <= 0.0:
+					_reward(u)
+				if _structure(u):
+					done = true
+					break
 				if b.first == null:
 					b.first = u
 					b.extra = 0.0
@@ -2625,8 +2688,6 @@ func _projectiles(delta: float) -> void:
 					_stun(u, b.disable)
 					done = true
 					break
-				if u.vital.hp <= 0.0:
-					_reward(u)
 		if not b.pierce and b.first != null:
 			done = true
 		if b.first != null and b.extra >= 300.0:
@@ -2715,7 +2776,11 @@ func _deaths() -> void:
 		if u.kind == "nexus" and not ended:
 			ended = true
 			Sfx.play("nexus")
+			var winner := "red" if u.team == "blue" else "blue"
 			_say("%s 넥서스가 파괴되었습니다." % ("붉은" if u.team == "red" else "푸른"))
+			if StrifeAcc.logged_in() and player != null:
+				StrifeAcc.function_call("strife-queue", {"op": "result", "won": player.team == winner, "mode": Draft.mode})
+				StrifeAcc.load_progress()
 			paused = true
 		if u.death_t > 0.0:
 			continue
@@ -2755,7 +2820,9 @@ func _deaths() -> void:
 
 func _basic_power(source, target) -> float:
 	var power = source.ad
-	if source.kind == "minion" and target.kind == "champion":
+	if source.kind == "champion":
+		power *= 1.85
+	elif source.kind == "minion" and target.kind == "champion":
 		power *= 0.35
 	return power
 
@@ -3137,6 +3204,15 @@ func _solid_radius(u) -> float:
 	if u.kind == "tower" or u.kind == "inhibitor" or u.kind == "nexus":
 		return u.radius
 	return 0.0
+
+func _structure_at(x: float, z: float, r: float):
+	for u in units:
+		var body = _solid_radius(u)
+		if body <= 0.0:
+			continue
+		if Vector2(x - u.global_position.x, z - u.global_position.z).length() < body + r * 0.9:
+			return u
+	return null
 
 func _hits_solid(x: float, z: float, r: float) -> bool:
 	for u in units:
@@ -3755,6 +3831,125 @@ func _tick_recall_visual() -> void:
 			var pct = clampf(1.0 - player.recall / 8.0, 0.05, 1.0)
 			recall_column.global_position = player.global_position + Vector3(0, 40 + 80.0 * pct, 0)
 			recall_column.scale = Vector3(1, pct, 1)
+
+func bind_remote(peer: int, username: String) -> void:
+	for u in units:
+		if u.kind == "champion" and str(u.username) == username:
+			u.set_meta("remote", true)
+			u.target = null
+			u.moving = false
+			peer_units[peer] = u
+			return
+
+func apply_remote(peer: int, cmd: Dictionary) -> void:
+	var u = peer_units.get(peer)
+	if u == null or u.dead:
+		return
+	var op := str(cmd.get("op", ""))
+	if op == "move":
+		u.command_move(Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))))
+	elif op == "amove":
+		u.command_attack_move(Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))))
+	elif op == "attack":
+		var target = _unit_by_nid(int(cmd.get("id", -1)))
+		if target != null:
+			u.command_attack(target)
+	elif op == "cast":
+		var prev = player
+		var prev_def = player_def
+		player = u
+		player_def = Legends.by_name(u.unit_name)
+		_begin_cast(str(cmd.get("slot", "q")), Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))))
+		player = prev
+		player_def = prev_def
+
+func _unit_by_nid(id: int):
+	for u in units:
+		if int(u.get_meta("nid", -1)) == id:
+			return u
+	return null
+
+func _pack_state() -> Array:
+	var rows: Array = []
+	for u in units:
+		if u.kind == "minion" and u.dead:
+			continue
+		rows.append({
+			"id": int(u.get_meta("nid", 0)),
+			"k": u.kind,
+			"t": u.team,
+			"x": u.global_position.x,
+			"z": u.global_position.z,
+			"yaw": u.rotation.y,
+			"hp": u.vital.hp,
+			"mh": u.vital.max_hp,
+			"d": u.dead,
+			"n": u.unit_name,
+			"un": u.username,
+			"r": u.role,
+			"st": u.style,
+			"kk": u.kills,
+			"dd": u.deaths,
+			"aa": u.assists,
+			"cs": cs if u == player else u.cs,
+			"g": gold if u == player else u.purse,
+			"lv": u.level,
+			"mv": u.moving,
+		})
+	rows.append({"id": -1, "clock": clock})
+	return rows
+
+func apply_net_state(rows: Array) -> void:
+	for item in rows:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = item
+		var id := int(row.get("id", -1))
+		if id < 0:
+			clock = float(row.get("clock", clock))
+			continue
+		var u = net_puppets.get(id, null)
+		if u == null:
+			u = _spawn_puppet(row)
+			net_puppets[id] = u
+		var x := float(row.get("x", 0.0))
+		var z := float(row.get("z", 0.0))
+		u.global_position = Vector3(x, Rift.ground_y(x, z), z)
+		u.rotation.y = float(row.get("yaw", 0.0))
+		u.vital.max_hp = maxf(1.0, float(row.get("mh", 1.0)))
+		u.vital.hp = float(row.get("hp", u.vital.hp))
+		u.vital.shown = u.vital.hp
+		u.dead = bool(row.get("d", false))
+		u.moving = bool(row.get("mv", false))
+		u.kills = int(row.get("kk", 0))
+		u.deaths = int(row.get("dd", 0))
+		u.assists = int(row.get("aa", 0))
+		u.cs = int(row.get("cs", 0))
+		u.purse = int(row.get("g", 0))
+		u.level = int(row.get("lv", 1))
+		if str(u.username) == StrifeAcc.current():
+			player = u
+			gold = u.purse
+			cs = u.cs
+			if name_label:
+				name_label.text = "%s  ·  %s" % [u.unit_name, u.username]
+
+func _spawn_puppet(row: Dictionary):
+	var kind := str(row.get("k", "minion"))
+	var u = _make_unit(kind, str(row.get("t", "blue")), str(row.get("n", "")), Vector3.ZERO, 36.0 if kind == "champion" else 30.0)
+	u.set_meta("nid", int(row.get("id", 0)))
+	u.username = str(row.get("un", ""))
+	u.role = str(row.get("r", ""))
+	u.style = str(row.get("st", ""))
+	if kind == "champion":
+		var def = Legends.by_name(u.unit_name)
+		if def.is_empty():
+			u.build_visual()
+		else:
+			_apply_legend(u, def, u.username, false)
+	else:
+		u.build_visual()
+	return u
 
 func _run_headless_checks() -> void:
 	var origin = player.global_position

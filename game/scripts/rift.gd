@@ -120,7 +120,7 @@ static func _dist_seg(x: float, z: float, a: Vector3, b: Vector3) -> float:
 # ---------- terrain ----------
 
 static func _terrain(parent: Node3D) -> void:
-	var n = 170
+	var n = 88
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for z in n:
@@ -188,57 +188,20 @@ void vertex(){
 }
 void fragment(){
 	vec2 p = wpos.xz;
-	float macro = fbm(p * 0.0012);
-	float meso = fbm(p * 0.009);
-	float micro = fbm(p * 0.045);
-	vec3 grassA = vec3(0.025, 0.07, 0.03);
-	vec3 grassB = vec3(0.05, 0.12, 0.045);
-	vec3 grassC = vec3(0.08, 0.14, 0.05);
-	vec3 grass = mix(grassA, grassB, macro);
-	grass = mix(grass, grassC, smoothstep(0.55, 0.85, meso) * 0.5);
-	grass *= 0.86 + micro * 0.28;
-	float blade = smoothstep(0.78, 0.92, vnoise(p * 0.32 + meso * 4.0));
-	grass = mix(grass, grassB * 1.25, blade * 0.35);
-	vec3 dirtA = vec3(0.22, 0.16, 0.09);
-	vec3 dirtB = vec3(0.32, 0.24, 0.13);
-	vec3 dirt = mix(dirtA, dirtB, smoothstep(0.3, 0.7, meso));
-	float pebble = smoothstep(0.74, 0.8, vnoise(p * 0.35));
-	dirt = mix(dirt, vec3(0.5, 0.48, 0.44), pebble * 0.4);
-	float rut = smoothstep(0.35, 0.5, abs(fbm(p * 0.004) - 0.5)) ;
-	dirt *= 0.9 + micro * 0.2 - rut * 0.08;
-	vec3 bed = mix(vec3(0.14, 0.16, 0.16), vec3(0.28, 0.3, 0.3), meso);
-	bed *= 0.8 + micro * 0.4;
-	vec2 tile = fract(p / 64.0);
-	float mortar = 1.0 - smoothstep(0.0, 0.08, min(min(tile.x, 1.0 - tile.x), min(tile.y, 1.0 - tile.y)));
-	vec3 plaza = mix(vec3(0.3, 0.29, 0.27), vec3(0.4, 0.38, 0.34), vnoise(floor(p / 64.0)));
-	plaza *= 0.9 + micro * 0.2;
-	plaza = mix(plaza, vec3(0.18, 0.17, 0.16), mortar * 0.85);
-	float laneEdge = smoothstep(0.25, 0.75, wgt.r + (meso - 0.5) * 0.5);
-	float riverEdge = smoothstep(0.3, 0.8, wgt.g + (micro - 0.5) * 0.3);
-	float baseEdge = smoothstep(0.35, 0.7, wgt.b + (meso - 0.5) * 0.25);
-	vec3 albedo = grass;
-	albedo = mix(albedo, dirt, laneEdge);
+	float n = vnoise(p * 0.006);
+	vec3 grass = mix(vec3(0.03, 0.08, 0.035), vec3(0.06, 0.13, 0.05), n);
+	vec3 dirt = vec3(0.26, 0.19, 0.11);
+	vec3 bed = vec3(0.12, 0.2, 0.24);
+	vec3 plaza = vec3(0.34, 0.32, 0.29);
+	float laneEdge = smoothstep(0.25, 0.75, wgt.r);
+	float riverEdge = smoothstep(0.3, 0.8, wgt.g);
+	float baseEdge = smoothstep(0.35, 0.7, wgt.b);
+	vec3 albedo = mix(grass, dirt, laneEdge);
 	albedo = mix(albedo, bed, riverEdge);
 	albedo = mix(albedo, plaza, baseEdge);
-	float rough = mix(0.92, 0.78, laneEdge);
-	rough = mix(rough, 0.55, riverEdge);
-	rough = mix(rough, 0.62, baseEdge);
-	float e = 1.6;
-	float hL = fbm((p + vec2(-e, 0.0)) * 0.045);
-	float hR = fbm((p + vec2(e, 0.0)) * 0.045);
-	float hD = fbm((p + vec2(0.0, -e)) * 0.045);
-	float hU = fbm((p + vec2(0.0, e)) * 0.045);
-	float strength = mix(2.2, 0.9, laneEdge);
-	strength = mix(strength, 0.4, baseEdge);
-	vec3 nm = normalize(vec3((hL - hR) * strength, (hD - hU) * strength, 1.0));
-	NORMAL_MAP = nm * 0.5 + 0.5;
-	NORMAL_MAP_DEPTH = 1.0;
 	ALBEDO = albedo;
-	ROUGHNESS = rough;
+	ROUGHNESS = mix(0.9, 0.62, riverEdge);
 	METALLIC = 0.0;
-	SPECULAR = 0.25;
-	AO = 0.85 + macro * 0.15;
-	AO_LIGHT_AFFECT = 0.4;
 }
 """
 	_ground_sh = sh
@@ -759,7 +722,7 @@ static func _base_plaza(parent: Node3D, pos: Vector3, color: Color) -> void:
 	light.light_color = color
 	light.light_energy = 3.0
 	light.omni_range = 1600
-	light.shadow_enabled = true
+	light.shadow_enabled = false
 	parent.add_child(light)
 
 static func _lane_lamps(parent: Node3D) -> void:
@@ -800,12 +763,6 @@ static func _lane_lamps(parent: Node3D) -> void:
 				fire.material_override = flame
 				fire.position = Vector3(p.x, y + 162, p.z)
 				parent.add_child(fire)
-				var light = OmniLight3D.new()
-				light.light_color = Color(1.0, 0.78, 0.4)
-				light.light_energy = 0.9
-				light.omni_range = 380
-				light.position = Vector3(p.x, y + 170, p.z)
-				parent.add_child(light)
 
 # ---------- structures ----------
 

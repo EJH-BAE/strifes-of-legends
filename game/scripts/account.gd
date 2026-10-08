@@ -8,6 +8,10 @@ var username := ""
 var user_id := ""
 var access := ""
 var refresh := ""
+var account_level := 1
+var account_elo := 1000
+var account_ranked := 0
+var account_rank := ""
 var session_path := SESSION
 
 func current() -> String:
@@ -41,6 +45,36 @@ func login(name: String, password: String) -> String:
 	if name == "" or password == "":
 		return "아이디와 비밀번호를 입력하세요."
 	return _auth("login", name, password)
+
+func function_call(fn: String, body: Dictionary) -> Dictionary:
+	return _http(HTTPClient.METHOD_POST, "/functions/v1/" + fn, JSON.stringify(body), access)
+
+func load_progress() -> void:
+	account_level = 1
+	account_elo = 1000
+	account_ranked = 0
+	account_rank = ""
+	if not logged_in():
+		return
+	var res := _http(HTTPClient.METHOD_GET, "/rest/v1/profiles?id=eq.%s&select=level,elo,ranked_games,rank_tier" % user_id, "", access)
+	for item in _list(res):
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var row: Dictionary = item
+		account_level = maxi(1, int(row.get("level", 1)))
+		account_elo = int(row.get("elo", 1000))
+		account_ranked = int(row.get("ranked_games", 0))
+		account_rank = str(row.get("rank_tier", ""))
+		return
+
+func rank_text() -> String:
+	if account_level < 55:
+		return "랭크 잠김"
+	if account_ranked < 10:
+		return "배치고사 %d/10" % account_ranked
+	if account_rank == "":
+		return "언랭크"
+	return account_rank
 
 func logout() -> void:
 	username = ""

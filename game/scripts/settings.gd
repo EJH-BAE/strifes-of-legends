@@ -16,19 +16,20 @@ var shake := true
 var show_range := false
 var show_bars := true
 var fog := false
+var graphics_rev := 2
 var fullscreen := false
 var window_mode := "borderless"
 var resolution := "1600x900"
 var max_fps := 0
-var aa_mode := "taa"
+var aa_mode := "fxaa"
 var render_scale := 1.0
-var shadow_quality := "high"
-var ao := true
-var gi_mode := "ssil"
-var reflections := true
+var shadow_quality := "low"
+var ao := false
+var gi_mode := "off"
+var reflections := false
 var brightness := 1.0
 var show_fps := false
-var quality := "high"
+var quality := "medium"
 var vsync := true
 var shadows := true
 var aa := true
@@ -36,7 +37,7 @@ var auto_attack := false
 var attack_left := true
 var mouse_pan := 8.0
 var invert_drag := false
-var particles := "high"
+var particles := "low"
 var hud_scale := 1.0
 var master := 0.8
 var sfx := 0.85
@@ -111,11 +112,28 @@ func load_all() -> void:
 	aa = bool(cfg.get_value("video", "aa", aa))
 	particles = str(cfg.get_value("video", "particles", particles))
 	hud_scale = float(cfg.get_value("ui", "hud_scale", hud_scale))
+	graphics_rev = int(cfg.get_value("video", "graphics_rev", 0))
 	master = float(cfg.get_value("audio", "master", master))
 	sfx = float(cfg.get_value("audio", "sfx", sfx))
 	music = float(cfg.get_value("audio", "music", music))
 	for k in binds.keys():
 		binds[k] = int(cfg.get_value("keys", k, binds[k]))
+	if graphics_rev < 2:
+		_playable_graphics()
+		graphics_rev = 2
+		save_all()
+
+func _playable_graphics() -> void:
+	quality = "medium"
+	aa_mode = "fxaa"
+	shadow_quality = "low"
+	shadows = true
+	ao = false
+	gi_mode = "off"
+	reflections = false
+	fog = false
+	particles = "low"
+	render_scale = 1.0
 
 func save_all() -> void:
 	var cfg := ConfigFile.new()
@@ -152,6 +170,7 @@ func save_all() -> void:
 	cfg.set_value("video", "shadows", shadows)
 	cfg.set_value("video", "aa", aa)
 	cfg.set_value("video", "particles", particles)
+	cfg.set_value("video", "graphics_rev", graphics_rev)
 	cfg.set_value("ui", "hud_scale", hud_scale)
 	cfg.set_value("audio", "master", master)
 	cfg.set_value("audio", "sfx", sfx)

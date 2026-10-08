@@ -750,7 +750,7 @@ func _build_nexus() -> void:
 	light.light_color = _team_color()
 	light.light_energy = 2.2
 	light.omni_range = 700
-	light.shadow_enabled = true
+	light.shadow_enabled = false
 	light.position = Vector3(0, 250, 0)
 	add_child(light)
 

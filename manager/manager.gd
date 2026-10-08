@@ -4,7 +4,7 @@ const ACC := "user://session.cfg"
 const AUTH_HOST := "sagrimdeoxfhvrtjllrm.supabase.co"
 const AUTH_KEY := "sb_publishable_yhM8PP1ZK7ToF51XKeUhdQ_5pRkE5Uc"
 const SETTINGS := "user://settings.cfg"
-const VERSION := "0.6.2"
+const VERSION := "0.6.4"
 const FEED := "https://raw.githubusercontent.com/EJH-BAE/strifes-of-legends/main/update.json"
 
 var username := ""
