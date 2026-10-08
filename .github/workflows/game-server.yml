@@ -1,0 +1,68 @@
+name: game-server
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: sol-game-server
+  cancel-in-progress: false
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Check out the game
+        uses: actions/checkout@v4
+        with:
+          ref: server
+
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y ca-certificates unzip libfontconfig1 libxcursor1 libxinerama1 libxrandr2 libxi6 libgl1 libx11-6 libxext6 libxrender1
+
+      - name: Download Godot
+        run: |
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          unzip -o godot.zip
+          bin=$(find . -maxdepth 2 -type f -name 'Godot*' ! -name '*.zip' | head -1)
+          chmod +x "$bin"
+          ln -sf "$bin" godot-bin
+
+      - name: Download cloudflared
+        run: |
+          curl -fsSL -o cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+          chmod +x cloudflared
+
+      - name: Open the public tunnel
+        run: |
+          ./cloudflared tunnel --url http://127.0.0.1:9090 --no-autoupdate > cf.log 2>&1 &
+          echo $! > cf.pid
+          for _ in $(seq 1 40); do
+            url=$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' cf.log | head -1 || true)
+            if [ -n "$url" ]; then
+              echo "SOL_PUBLIC_URL=wss://${url#https://}" >> "$GITHUB_ENV"
+              echo "Public ${url}"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat cf.log
+          exit 1
+
+      - name: Run the match server
+        run: ./godot-bin --headless --path game -- --server
+
+      - name: Start the next server
+        if: always()
+        run: |
+          if [ -f cf.pid ]; then kill "$(cat cf.pid)" || true; fi
+          sleep 15
+          gh workflow run game-server.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
