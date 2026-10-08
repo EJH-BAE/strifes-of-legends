@@ -553,10 +553,10 @@ func _finish_pick() -> void:
 	phase_lab.text = "대열 구성"
 	timer_lab.text = "0"
 	_paint_slots()
-	chat_lab.text = "양 팀 레전드가 확정되었습니다. 전장으로 이동합니다."
+	chat_lab.text = "홈에서 매칭을 시작하세요."
 	Sfx.play("r")
-	await get_tree().create_timer(1.6).timeout
-	get_tree().change_scene_to_file("res://match.tscn")
+	await get_tree().create_timer(1.2).timeout
+	get_tree().change_scene_to_file("res://main.tscn")
 
 func _reveal_teams() -> void:
 	for i in 5:

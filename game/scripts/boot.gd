@@ -2,6 +2,7 @@ extends Node
 
 const MenuScript = preload("res://scripts/settings_menu.gd")
 const Marks = preload("res://scripts/marks.gd")
+const Legends = preload("res://scripts/legends.gd")
 
 var cam: Camera3D
 var spin := 0.0
@@ -11,6 +12,9 @@ var taken_roles := {}
 var role_nodes := {}
 
 func _ready() -> void:
+	if not SolNet.session_ready.is_connected(_on_session_ready):
+		SolNet.session_ready.connect(_on_session_ready)
+		SolNet.session_failed.connect(_on_session_failed)
 	print("VITAL ", preload("res://scripts/health.gd").new().self_test())
 	print("DISPLAY ", DisplayServer.get_name())
 	Settings.apply_window()
@@ -109,13 +113,24 @@ func _process(delta: float) -> void:
 		if match_poll <= 0.0:
 			match_poll = 1.0
 			_poll_match()
+	elif linking:
+		match_secs += delta
+		if match_clock:
+			var secs := int(match_secs)
+			match_clock.text = "%d:%02d" % [int(secs / 60.0), secs % 60]
+		link_wait -= delta
+		if link_wait <= 0.0:
+			_link_failed("서버에 연결하지 못했습니다.")
 
 var home_mode := "normal"
-var party_box: HBoxContainer
+var party_box: Control
 var home_toast: Label
 var match_layer: CanvasLayer
+var match_title: Label
 var match_clock: Label
 var matching := false
+var linking := false
+var link_wait := 0.0
 var match_secs := 0.0
 var match_poll := 0.0
 
@@ -207,10 +222,10 @@ func _menu() -> void:
 		card.pressed.connect(_pick_mode.bind(card, modes))
 		modes.add_child(card)
 	_paint_modes(modes)
-	party_box = HBoxContainer.new()
-	party_box.position = Vector2(16, 112)
-	party_box.add_theme_constant_override("separation", 8)
-	dock.add_child(party_box)
+	party_box = Control.new()
+	party_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	party_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(party_box)
 	var start := _menu_button("매치 시작", _start_match)
 	start.position = Vector2(860, 168)
 	start.custom_minimum_size = Vector2(220, 48)
@@ -253,7 +268,10 @@ func _paint_party() -> void:
 	for child in party_box.get_children():
 		party_box.remove_child(child)
 		child.queue_free()
-	var members: Array = []
+	var mine := StrifeAcc.current()
+	var mine_row := {"username": mine, "role": "mid"}
+	var others: Array = []
+	var seen := {}
 	var state: Dictionary = SolNet.party("state")
 	var group = state.get("members", [])
 	if group is Array:
@@ -261,20 +279,114 @@ func _paint_party() -> void:
 			if typeof(item) != TYPE_DICTIONARY:
 				continue
 			var row: Dictionary = item
-			if str(row.get("member_status", "")) == "joined":
-				members.append(str(row.get("username", "")))
-	if members.is_empty():
-		members.append(StrifeAcc.current())
+			if str(row.get("member_status", "")) != "joined":
+				continue
+			var who := str(row.get("username", ""))
+			if who == "" or seen.has(who):
+				continue
+			seen[who] = true
+			if who == mine:
+				mine_row = row
+			else:
+				others.append(row)
+	var slots: Array = [null, null, mine_row, null, null]
+	var order := [1, 3, 0, 4]
+	for i in mini(others.size(), order.size()):
+		slots[order[i]] = others[i]
+	var view := get_viewport().get_visible_rect().size
+	var gap := 16.0
+	var card_w := minf(156.0, (view.x - 96.0 - gap * 4.0) / 5.0)
+	var card_h := minf(360.0, view.y - 340.0)
+	var total := card_w * 5.0 + gap * 4.0
+	var x0 := (view.x - total) * 0.5
+	var y0 := (view.y - 260.0 - card_h) * 0.5
+	if y0 < 96.0:
+		y0 = 96.0
+	var card_size := Vector2(card_w, card_h)
 	for i in 5:
-		if i < members.size():
-			var who: String = members[i]
-			var card := _menu_button(who, _kick_member.bind(who))
-			card.custom_minimum_size = Vector2(140, 48)
-			party_box.add_child(card)
+		var card: Control
+		if slots[i] == null:
+			card = _party_empty(card_size)
 		else:
-			var add := _menu_button("+", _invite_friend)
-			add.custom_minimum_size = Vector2(72, 48)
-			party_box.add_child(add)
+			card = _party_banner(slots[i], card_size)
+		card.position = Vector2(x0 + float(i) * (card_w + gap), y0)
+		party_box.add_child(card)
+
+func _party_banner(row: Dictionary, card_size: Vector2) -> Control:
+	var who := str(row.get("username", ""))
+	var role := str(row.get("role", "mid"))
+	var mine := who == StrifeAcc.current()
+	var card := Panel.new()
+	card.custom_minimum_size = card_size
+	card.size = card_size
+	card.clip_contents = true
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.1, 0.14, 0.94)
+	style.border_color = Color(0.96, 0.82, 0.34) if mine else Color(0.28, 0.4, 0.5, 0.8)
+	style.set_border_width_all(3 if mine else 1)
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	card.add_theme_stylebox_override("panel", style)
+	var roles := {"top": "탑", "jungle": "정글", "mid": "미드", "adc": "원딜", "support": "서폿"}
+	var pool: Array = Legends.by_role(role if role != "" else "mid")
+	if pool.is_empty():
+		pool = Legends.all()
+	var def: Dictionary = pool[absi(who.hash()) % pool.size()]
+	var art := TextureRect.new()
+	art.texture = Legends.portrait(def, 280)
+	var art_h := card_size.y - 124.0
+	art.position = Vector2(8, 8)
+	art.size = Vector2(card_size.x - 16.0, art_h)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	card.add_child(art)
+	var name := Label.new()
+	name.text = who
+	name.position = Vector2(8, art_h + 12.0)
+	name.size = Vector2(card_size.x - 16.0, 24)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name.clip_text = true
+	name.add_theme_font_size_override("font_size", 16)
+	name.add_theme_color_override("font_color", Color(0.96, 0.94, 0.9) if mine else Color(0.82, 0.86, 0.9))
+	card.add_child(name)
+	var sub := Label.new()
+	sub.text = str(roles.get(role, "준비"))
+	sub.position = Vector2(8, art_h + 36.0)
+	sub.size = Vector2(card_size.x - 16.0, 20)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 13)
+	sub.add_theme_color_override("font_color", Color(0.7, 0.78, 0.84))
+	card.add_child(sub)
+	var badge := TextureRect.new()
+	badge.texture = Marks.icon(role if role != "" else "mid")
+	badge.position = Vector2(card_size.x * 0.5 - 24.0, card_size.y - 56.0)
+	badge.size = Vector2(48, 48)
+	badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	card.add_child(badge)
+	return card
+
+func _party_empty(card_size: Vector2) -> Control:
+	var card := Button.new()
+	card.text = "+"
+	card.custom_minimum_size = card_size
+	card.size = card_size
+	card.add_theme_font_size_override("font_size", 48)
+	card.add_theme_color_override("font_color", Color(0.55, 0.7, 0.78))
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.06, 0.09, 0.72)
+	style.border_color = Color(0.22, 0.34, 0.42, 0.7)
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_left = 6
+	style.corner_radius_bottom_right = 6
+	card.add_theme_stylebox_override("normal", style)
+	card.add_theme_stylebox_override("hover", style)
+	card.pressed.connect(_invite_friend)
+	return card
 
 func _kick_member(_who: String) -> void:
 	_open_friends()
@@ -309,17 +421,17 @@ func _show_matching() -> void:
 	dim.color = Color(0, 0, 0, 0.55)
 	dim.theme = _font()
 	match_layer.add_child(dim)
-	var title := Label.new()
-	title.text = "매칭 중"
-	title.set_anchors_preset(Control.PRESET_CENTER)
-	title.offset_left = -160
-	title.offset_top = -40
-	title.offset_right = 160
-	title.offset_bottom = 0
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 36)
-	title.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
-	match_layer.add_child(title)
+	match_title = Label.new()
+	match_title.text = "매칭 찾는 중..."
+	match_title.set_anchors_preset(Control.PRESET_CENTER)
+	match_title.offset_left = -280
+	match_title.offset_top = -40
+	match_title.offset_right = 280
+	match_title.offset_bottom = 0
+	match_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	match_title.add_theme_font_size_override("font_size", 36)
+	match_title.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
+	match_layer.add_child(match_title)
 	match_clock = Label.new()
 	match_clock.set_anchors_preset(Control.PRESET_CENTER)
 	match_clock.offset_left = -80
@@ -343,10 +455,13 @@ func _show_matching() -> void:
 
 func _cancel_match() -> void:
 	matching = false
+	linking = false
+	SolNet.abort_join()
 	StrifeAcc.function_call("strife-queue", {"op": "cancel"})
 	if match_layer != null and is_instance_valid(match_layer):
 		match_layer.queue_free()
 	match_layer = null
+	match_title = null
 	if home_toast:
 		home_toast.text = "매칭을 취소했습니다."
 
@@ -360,9 +475,42 @@ func _poll_match() -> void:
 	if not bool(res.get("ready", false)):
 		return
 	matching = false
+	_connect_server(str(res.get("host", "")), int(res.get("port", 9090)))
+
+func _connect_server(host: String, port: int) -> void:
+	if match_layer == null or not is_instance_valid(match_layer):
+		_show_matching()
+	matching = false
+	linking = true
+	link_wait = 12.0
+	if match_title:
+		match_title.text = "서버 연결 중..."
+	var err := SolNet.connect_match(host, port)
+	if err != "":
+		_link_failed(err)
+
+func _on_session_ready() -> void:
+	if not linking:
+		return
+	linking = false
+	get_tree().change_scene_to_file("res://match.tscn")
+
+func _on_session_failed() -> void:
+	if not linking:
+		return
+	_link_failed("서버에 연결하지 못했습니다.")
+
+func _link_failed(msg: String) -> void:
+	linking = false
+	matching = false
+	SolNet.abort_join()
 	if match_layer != null and is_instance_valid(match_layer):
 		match_layer.queue_free()
-	_enter_match(str(res.get("host", "")), int(res.get("port", 7777)))
+	match_layer = null
+	match_title = null
+	if home_toast:
+		home_toast.text = msg
+	Sfx.play("error")
 
 func _account() -> void:
 	var layer := CanvasLayer.new()
@@ -504,7 +652,7 @@ func _friend_action(text: String, who: String, action: String, list: VBoxContain
 				var invited: Dictionary = SolNet.party("invite", {"username": id})
 				msg = str(invited.get("error", ""))
 				if msg == "":
-					msg = ""
+					_paint_party()
 		else:
 			msg = StrifeAcc.decline_friend(id)
 		var ok := msg == ""
@@ -583,10 +731,7 @@ func _open_party() -> void:
 	refresh.call()
 
 func _enter_match(host: String, port: int) -> void:
-	var err: String = SolNet.connect_match(host, port)
-	if err != "":
-		return
-	get_tree().change_scene_to_file("res://match.tscn")
+	_connect_server(host, port)
 
 func _open_notes() -> void:
 	if not StrifeAcc.logged_in():

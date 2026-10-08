@@ -141,6 +141,7 @@ var snap_acc := 0.0
 var minimap: TextureRect
 var minimap_dots: Control
 var fps_label: Label
+var wait_layer: CanvasLayer
 const CAM_OFF = Vector3(0, 1500, -1120)
 var cam_lock = true
 var space_held = false
@@ -183,6 +184,11 @@ var pause_layer: CanvasLayer
 var shop_layer: CanvasLayer
 var wheel: Control
 var feed: Label
+var chat_log: Label
+var chat_line: LineEdit
+var chat_lines: PackedStringArray = PackedStringArray()
+var order_from_net := false
+var order_point := Vector3.ZERO
 var death_label: Label
 var clock = 0.0
 var target_rings = {}
@@ -205,6 +211,11 @@ func _ready() -> void:
 		_on_settings()
 		_make_cursors()
 		_make_order_markers()
+		_show_wait("서버 연결 중...")
+		_build_chat()
+		return
+	if not SolNet.serving() and DisplayServer.get_name() != "headless":
+		get_tree().change_scene_to_file("res://main.tscn")
 		return
 	_world()
 	_spawn_player()
@@ -222,6 +233,7 @@ func _ready() -> void:
 	_on_settings()
 	_make_cursors()
 	_make_order_markers()
+	_build_chat()
 	for arg in OS.get_cmdline_user_args():
 		if str(arg).begins_with("--shot="):
 			shot_path = str(arg).substr(7)
@@ -316,6 +328,7 @@ func _world() -> void:
 		walls.append(rect)
 	camera = Camera3D.new()
 	camera.fov = 34
+	camera.far = 40000.0
 	camera.current = true
 	add_child(camera)
 	aim_mesh = MeshInstance3D.new()
@@ -1253,12 +1266,35 @@ func _refresh_keys() -> void:
 	for i in 7:
 		item_buttons[i].text = Settings.key_label(Settings.key_of("i%d" % (i + 1)))
 
+func _show_wait(text: String) -> void:
+	wait_layer = CanvasLayer.new()
+	wait_layer.layer = 30
+	add_child(wait_layer)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.02, 0.03, 0.05, 1)
+	wait_layer.add_child(dim)
+	var label := Label.new()
+	label.text = text
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.offset_left = -280
+	label.offset_top = -24
+	label.offset_right = 280
+	label.offset_bottom = 24
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 32)
+	label.add_theme_color_override("font_color", Color(0.93, 0.84, 0.62))
+	wait_layer.add_child(label)
+
 func _process(delta: float) -> void:
 	if net_label:
 		net_label.text = "%d ms    %d FPS" % [SolNet.ping_ms, Engine.get_frames_per_second()]
 	if SolNet.remote_client():
 		if player == null:
 			return
+		if wait_layer != null and is_instance_valid(wait_layer):
+			wait_layer.queue_free()
+			wait_layer = null
 		_follow_camera(delta)
 		_update_hud()
 		_update_bars()
@@ -1298,6 +1334,11 @@ func _physics_process(delta: float) -> void:
 	for u in units:
 		if u.kind != "champion" or u.dead:
 			continue
+		if bool(u.get_meta("remote", false)):
+			for key in ["d", "f"]:
+				var left := float(u.get_meta("cd_" + key, 0.0))
+				if left > 0.0:
+					u.set_meta("cd_" + key, max(0.0, left - delta))
 		u.in_fight += delta
 		if u.in_fight >= 15.0 and u.payable >= 0 and u.streak > u.payable:
 			u.payable = u.streak
@@ -1701,8 +1742,81 @@ func _update_aim() -> void:
 	_update_cursor()
 	_update_order_markers()
 
+func _build_chat() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 14
+	add_child(layer)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	box.offset_left = 16
+	box.offset_top = -210
+	box.offset_right = 480
+	box.offset_bottom = -16
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(box)
+	chat_log = Label.new()
+	chat_log.custom_minimum_size = Vector2(450, 140)
+	chat_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	chat_log.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	chat_log.add_theme_font_size_override("font_size", 15)
+	chat_log.add_theme_color_override("font_color", Color(0.94, 0.92, 0.84))
+	box.add_child(chat_log)
+	chat_line = LineEdit.new()
+	chat_line.placeholder_text = "Enter 채팅  ·  /메시지 는 팀"
+	chat_line.custom_minimum_size = Vector2(450, 34)
+	chat_line.text_submitted.connect(_submit_chat)
+	box.add_child(chat_line)
+
+func _submit_chat(text: String) -> void:
+	if chat_line:
+		chat_line.release_focus()
+		chat_line.text = ""
+	var clean := text.strip_edges()
+	if clean == "":
+		return
+	var team_only := clean.begins_with("/")
+	if team_only:
+		clean = clean.substr(1).strip_edges()
+	if clean == "":
+		return
+	if SolNet.remote_client():
+		SolNet.say_text(clean, team_only)
+		return
+	var who := str(player.username) if player != null else StrifeAcc.current()
+	var side := str(player.team) if team_only and player != null else ""
+	show_chat(who, clean, side)
+
+func show_chat(username: String, text: String, team: String) -> void:
+	if team != "" and player != null and str(player.team) != team:
+		return
+	var line := "%s: %s" % [username, text]
+	if team != "":
+		line = "[팀] " + line
+	chat_lines.append(line)
+	if chat_lines.size() > 8:
+		chat_lines.remove_at(0)
+	if chat_log:
+		chat_log.text = "\n".join(chat_lines)
+
+func team_of(username: String) -> String:
+	for u in units:
+		if u.kind == "champion" and str(u.username) == username:
+			return str(u.team)
+	return ""
+
+func show_mark(username: String, kind: String, x: float, z: float) -> void:
+	_spawn_ping(kind, Vector3(x, 0, z), username)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if Settings.block_input:
+		return
+	if chat_line and chat_line.has_focus():
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			chat_line.release_focus()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER:
+		if chat_line:
+			chat_line.grab_focus()
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		if shop_open:
@@ -1826,15 +1940,28 @@ func _key_down(code: int, shifted: bool = false) -> void:
 	elif code == Settings.key_of("r"):
 		_arm("r", shifted)
 	elif code == Settings.key_of("d"):
-		_flash()
+		if SolNet.remote_client():
+			var flash_at := _mouse_ground()
+			SolNet.cmd({"op": "flash", "x": flash_at.x, "z": flash_at.z})
+		else:
+			_flash()
 	elif code == Settings.key_of("f"):
-		_heal_summoner()
+		if SolNet.remote_client():
+			SolNet.cmd({"op": "heal"})
+		else:
+			_heal_summoner()
 	elif code == Settings.key_of("recall"):
-		_recall()
+		if SolNet.remote_client():
+			SolNet.cmd({"op": "recall"})
+		else:
+			_recall()
 	elif code == Settings.key_of("shop"):
 		_toggle_shop()
 	elif code == Settings.key_of("stop"):
-		player.stop_all()
+		if SolNet.remote_client():
+			SolNet.cmd({"op": "stop"})
+		else:
+			player.stop_all()
 		aim = ""
 		aim_pick = false
 	elif code == Settings.key_of("amove"):
@@ -2433,8 +2560,19 @@ func _burst(point: Vector3, radius: float, color: Color) -> void:
 	timed.max_life = 0.35
 	pings.append(timed)
 
+func _cd_of(key: String) -> float:
+	if player != null and bool(player.get_meta("remote", false)):
+		return float(player.get_meta("cd_" + key, 0.0))
+	return float(cd.get(key, 0.0))
+
+func _cd_put(key: String, value: float) -> void:
+	if player != null and bool(player.get_meta("remote", false)):
+		player.set_meta("cd_" + key, value)
+	else:
+		cd[key] = value
+
 func _flash() -> void:
-	if not _can_act() or cd["d"] > 0.0:
+	if not _can_act() or _cd_of("d") > 0.0:
 		Sfx.play("error")
 		return
 	var ground = _mouse_ground()
@@ -2460,11 +2598,11 @@ func _flash() -> void:
 	player.global_position = Vector3(dest.x, 0, dest.z)
 	player.recall = 0.0
 	player.windup = 0.0
-	cd["d"] = 300
+	_cd_put("d", 300)
 	Sfx.play("flash")
 
 func _heal_summoner() -> void:
-	if not _can_act() or cd["f"] > 0.0:
+	if not _can_act() or _cd_of("f") > 0.0:
 		Sfx.play("error")
 		return
 	var amount = 80.0 + 14.0 * 5.0
@@ -2492,7 +2630,7 @@ func _heal_summoner() -> void:
 	player.ms_buff = 0.3
 	player.ms_buff_t = 1.0
 	player.ms_buff_max = 1.0
-	cd["f"] = 240
+	_cd_put("f", 240)
 	player.recall = 0.0
 	Sfx.play("heal")
 
@@ -2778,6 +2916,8 @@ func _deaths() -> void:
 			Sfx.play("nexus")
 			var winner := "red" if u.team == "blue" else "blue"
 			_say("%s 넥서스가 파괴되었습니다." % ("붉은" if u.team == "red" else "푸른"))
+			if SolNet.serving():
+				get_tree().create_timer(8.0).timeout.connect(SolNet.finish_match)
 			if StrifeAcc.logged_in() and player != null:
 				StrifeAcc.function_call("strife-queue", {"op": "result", "won": player.team == winner, "mode": Draft.mode})
 				StrifeAcc.load_progress()
@@ -2983,6 +3123,19 @@ func _release_ping() -> void:
 	var names = {"alert": "주의", "danger": "위험!", "missing": "적 사라짐!", "help": "도와주세요!", "omw": "갑니다!"}
 	_say(names[kind])
 	var ground = _mouse_ground()
+	if SolNet.remote_client():
+		SolNet.mark(kind, ground.x, ground.z)
+		ping_cd = 0.4
+		return
+	_spawn_ping(kind, ground, player.username if player != null else "")
+	ping_cd = 0.4
+
+func _spawn_ping(kind: String, ground: Vector3, username: String) -> void:
+	var names = {"alert": "주의", "danger": "위험!", "missing": "적 사라짐!", "help": "도와주세요!", "omw": "갑니다!"}
+	if not names.has(kind):
+		kind = "alert"
+	if username != "":
+		_say("%s  %s" % [username, names[kind]])
 	var colors = {
 		"alert": Color(0.95, 0.86, 0.45),
 		"danger": Color(1.0, 0.28, 0.22),
@@ -3027,7 +3180,6 @@ func _release_ping() -> void:
 	ping.pos = ground + Vector3(0, 150, 0)
 	pings.append(ping)
 	Sfx.play("ping")
-	ping_cd = 0.4
 
 func _set_pause(open: bool) -> void:
 	pause_open = open
@@ -3059,6 +3211,8 @@ func _can_act() -> bool:
 	return not player.dead and player.stun <= 0.0 and player.stasis <= 0.0
 
 func _mouse_ground() -> Vector3:
+	if order_from_net:
+		return order_point
 	var mouse = get_viewport().get_mouse_position()
 	var origin = camera.project_ray_origin(mouse)
 	var dir = camera.project_ray_normal(mouse)
@@ -3855,13 +4009,29 @@ func apply_remote(peer: int, cmd: Dictionary) -> void:
 		if target != null:
 			u.command_attack(target)
 	elif op == "cast":
-		var prev = player
-		var prev_def = player_def
-		player = u
-		player_def = Legends.by_name(u.unit_name)
-		_begin_cast(str(cmd.get("slot", "q")), Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))))
-		player = prev
-		player_def = prev_def
+		_as_unit(u, Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))), func():
+			_begin_cast(str(cmd.get("slot", "q")), order_point)
+		)
+	elif op == "flash":
+		_as_unit(u, Vector3(float(cmd.get("x", 0.0)), 0, float(cmd.get("z", 0.0))), _flash)
+	elif op == "heal":
+		_as_unit(u, u.global_position, _heal_summoner)
+	elif op == "recall":
+		_as_unit(u, u.global_position, _recall)
+	elif op == "stop":
+		u.stop_all()
+
+func _as_unit(u, at: Vector3, action: Callable) -> void:
+	var prev = player
+	var prev_def = player_def
+	order_from_net = true
+	order_point = at
+	player = u
+	player_def = Legends.by_name(u.unit_name)
+	action.call()
+	player = prev
+	player_def = prev_def
+	order_from_net = false
 
 func _unit_by_nid(id: int):
 	for u in units:

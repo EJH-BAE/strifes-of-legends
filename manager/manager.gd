@@ -4,7 +4,7 @@ const ACC := "user://session.cfg"
 const AUTH_HOST := "sagrimdeoxfhvrtjllrm.supabase.co"
 const AUTH_KEY := "sb_publishable_yhM8PP1ZK7ToF51XKeUhdQ_5pRkE5Uc"
 const SETTINGS := "user://settings.cfg"
-const VERSION := "0.6.4"
+const VERSION := "0.6.5"
 const FEED := "https://raw.githubusercontent.com/EJH-BAE/strifes-of-legends/main/update.json"
 
 var username := ""
@@ -306,7 +306,7 @@ func _check_update() -> void:
 	add_child(patch_http)
 	patch_http.request_completed.connect(_on_feed)
 	status.text = "업데이트 확인 중"
-	if patch_http.request(FEED) != OK:
+	if patch_http.request("%s?t=%d" % [FEED, int(Time.get_unix_time_from_system())]) != OK:
 		status.text = "버전 %s" % VERSION
 
 func _on_feed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
@@ -318,15 +318,18 @@ func _on_feed(result: int, code: int, _headers: PackedStringArray, body: PackedB
 		status.text = "업데이트 정보를 읽지 못했습니다."
 		return
 	var remote := str(data.get("version", ""))
-	if _newer(remote, VERSION) <= 0:
+	if _newer(remote, VERSION) < 0:
+		_say("버전 %s" % VERSION, false)
+		return
+	if _newer(remote, VERSION) == 0:
 		_say("최신 버전 %s" % VERSION, false)
 		return
 	var url := str(data.get("installer", ""))
-	if url == "":
+	if url == "" or not url.begins_with("https://"):
 		status.text = "새 버전 %s 설치 파일이 없습니다." % remote
 		return
 	next_game = OS.get_executable_path().get_base_dir().path_join("SoLSetup.exe")
-	status.text = "설치 파일 %s 받는 중" % remote
+	status.text = "버전 %s 받는 중" % remote
 	patch_http.request_completed.disconnect(_on_feed)
 	patch_http.request_completed.connect(_on_download)
 	patch_http.download_file = next_game
@@ -334,8 +337,8 @@ func _on_feed(result: int, code: int, _headers: PackedStringArray, body: PackedB
 		status.text = "설치 파일을 받지 못했습니다."
 
 func _on_download(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
-	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not FileAccess.file_exists(next_game):
-		status.text = "설치 파일을 받지 못했습니다."
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or not _installer_ok(next_game):
+		status.text = "설치 파일을 받지 못했습니다. 버전 %s" % VERSION
 		return
 	status.text = "매니저와 게임을 설치합니다."
 	OS.create_process(next_game, [])
@@ -351,6 +354,17 @@ func _game_path() -> String:
 		if FileAccess.file_exists(fixed):
 			return fixed
 	return ""
+
+func _installer_ok(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return false
+	var size := file.get_length()
+	var head := file.get_buffer(2)
+	file.close()
+	return size > 200000 and head.size() == 2 and head[0] == 0x4d and head[1] == 0x5a
 
 func _newer(remote: String, local: String) -> int:
 	var aa := remote.split(".")
