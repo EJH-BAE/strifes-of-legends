@@ -485,7 +485,21 @@ func _poll_match() -> void:
 	if not bool(res.get("ready", false)):
 		return
 	matching = false
-	_connect_server(str(res.get("host", "")), int(res.get("port", 9090)))
+	_play_local(str(res.get("match_id", "")), home_mode)
+
+func _play_local(match_id: String, mode_name: String) -> void:
+	if match_title:
+		match_title.text = "경기 준비 중..."
+	SolNet.abort_join()
+	var pack: Dictionary = StrifeAcc.match_pack(match_id)
+	var mode := str(pack.get("mode", mode_name))
+	var roster = pack.get("roster", [])
+	if roster is Array and not roster.is_empty():
+		Draft.install_roster(mode, roster)
+	else:
+		Draft.queue(mode_name)
+		Draft.ensure()
+	get_tree().change_scene_to_file("res://match.tscn")
 
 func _connect_server(host: String, port: int) -> void:
 	if match_layer == null or not is_instance_valid(match_layer):

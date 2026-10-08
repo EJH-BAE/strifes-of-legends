@@ -65,6 +65,17 @@ func function_call(fn: String, body: Dictionary) -> Dictionary:
 		return {"error": "로그인이 만료되었습니다. 다시 로그인하세요."}
 	return res
 
+func match_pack(match_id: String) -> Dictionary:
+	if match_id == "" or not logged_in():
+		return {}
+	if _access_expired() and not _refresh_session():
+		return {}
+	var res := _http(HTTPClient.METHOD_GET, "/rest/v1/matches?id=eq.%s&select=mode,roster" % match_id, "", access)
+	for item in _list(res):
+		if typeof(item) == TYPE_DICTIONARY:
+			return item
+	return {}
+
 func load_progress() -> void:
 	account_level = 1
 	account_elo = 1000

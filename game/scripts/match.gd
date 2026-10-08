@@ -220,11 +220,9 @@ func _ready() -> void:
 		_on_settings()
 		_make_cursors()
 		_make_order_markers()
+		_update_cursor()
 		_show_wait("서버 연결 중...")
 		_build_chat()
-		return
-	if not SolNet.serving() and DisplayServer.get_name() != "headless":
-		get_tree().change_scene_to_file("res://main.tscn")
 		return
 	_world()
 	_spawn_player()
@@ -242,6 +240,7 @@ func _ready() -> void:
 	_on_settings()
 	_make_cursors()
 	_make_order_markers()
+	_update_cursor()
 	_build_chat()
 	for arg in OS.get_cmdline_user_args():
 		if str(arg).begins_with("--shot="):
@@ -1340,6 +1339,7 @@ func _process(delta: float) -> void:
 		_follow_camera(delta)
 		_update_hud()
 		_update_bars()
+		_update_aim()
 		if score_held and score_layer:
 			score_layer.visible = true
 			_refresh_scoreboard()
