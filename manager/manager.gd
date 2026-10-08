@@ -184,8 +184,78 @@ func _load_session() -> void:
 		return
 	var last := str(cfg.get_value("session", "user", ""))
 	var token := str(cfg.get_value("session", "access", ""))
-	if last != "" and token != "":
+	var saved_refresh := str(cfg.get_value("session", "refresh", ""))
+	if last == "" or token == "":
+		return
+	if _token_expired(token) and saved_refresh != "":
+		var renewed := _renew(saved_refresh)
+		if renewed.is_empty():
+			return
+		token = str(renewed.get("access_token", ""))
+		saved_refresh = str(renewed.get("refresh_token", saved_refresh))
+		cfg.set_value("session", "user", last)
+		cfg.set_value("session", "user_id", str(cfg.get_value("session", "user_id", "")))
+		cfg.set_value("session", "access", token)
+		cfg.set_value("session", "refresh", saved_refresh)
+		cfg.save(ACC)
+	if token != "":
 		username = last
+
+func _token_expired(token: String) -> bool:
+	var parts := token.split(".")
+	if parts.size() < 2:
+		return true
+	var b64 := parts[1].replace("-", "+").replace("_", "/")
+	var extra := b64.length() % 4
+	if extra > 0:
+		b64 += "=".repeat(4 - extra)
+	var raw := Marshalls.base64_to_raw(b64)
+	var parsed = JSON.parse_string(raw.get_string_from_utf8())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return true
+	var data: Dictionary = parsed
+	return int(data.get("exp", 0)) <= int(Time.get_unix_time_from_system()) + 60
+
+func _renew(saved_refresh: String) -> Dictionary:
+	var client := HTTPClient.new()
+	if client.connect_to_host(AUTH_HOST, 443, TLSOptions.client()) != OK:
+		return {}
+	var started := Time.get_ticks_msec()
+	while client.get_status() == HTTPClient.STATUS_CONNECTING or client.get_status() == HTTPClient.STATUS_RESOLVING:
+		client.poll()
+		if Time.get_ticks_msec() - started > 8000:
+			return {}
+		OS.delay_msec(10)
+	if client.get_status() != HTTPClient.STATUS_CONNECTED:
+		return {}
+	var headers := PackedStringArray([
+		"apikey: " + AUTH_KEY,
+		"Authorization: Bearer " + AUTH_KEY,
+		"Content-Type: application/json",
+		"Accept: application/json",
+	])
+	var payload := JSON.stringify({"refresh_token": saved_refresh})
+	if client.request(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", headers, payload) != OK:
+		return {}
+	while client.get_status() == HTTPClient.STATUS_REQUESTING:
+		client.poll()
+		if Time.get_ticks_msec() - started > 8000:
+			return {}
+		OS.delay_msec(10)
+	if not client.has_response() or client.get_response_code() >= 300:
+		return {}
+	var body := PackedByteArray()
+	while client.get_status() == HTTPClient.STATUS_BODY:
+		client.poll()
+		var chunk := client.read_response_body_chunk()
+		if chunk.is_empty():
+			break
+		body.append_array(chunk)
+	client.close()
+	var parsed = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {}
+	return parsed
 
 func _load_video() -> void:
 	var cfg := ConfigFile.new()

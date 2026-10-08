@@ -187,6 +187,13 @@ var feed: Label
 var chat_log: Label
 var chat_line: LineEdit
 var chat_lines: PackedStringArray = PackedStringArray()
+var alt_ping := false
+var inspect_card: Panel
+var inspect_text: Label
+var emote_box: Panel
+var frame_box: Panel
+var frame_text: Label
+var frame_open := false
 var order_from_net := false
 var order_point := Vector3.ZERO
 var death_label: Label
@@ -1262,7 +1269,7 @@ func _apply_graphics() -> void:
 
 func _refresh_keys() -> void:
 	for id in spell_buttons.keys():
-		spell_buttons[id].text = Settings.key_label(Settings.key_of(id))
+		spell_buttons[id].text = _spell_key_text(id)
 	for i in 7:
 		item_buttons[i].text = Settings.key_label(Settings.key_of("i%d" % (i + 1)))
 
@@ -1295,6 +1302,7 @@ func _process(delta: float) -> void:
 		if wait_layer != null and is_instance_valid(wait_layer):
 			wait_layer.queue_free()
 			wait_layer = null
+		_tick_keys_ui()
 		_follow_camera(delta)
 		_update_hud()
 		_update_bars()
@@ -1304,6 +1312,7 @@ func _process(delta: float) -> void:
 		return
 	if DisplayServer.get_name() == "headless":
 		return
+	_tick_keys_ui()
 	_follow_camera(delta)
 	_update_hud()
 	_update_bars()
@@ -1766,6 +1775,7 @@ func _build_chat() -> void:
 	chat_line.custom_minimum_size = Vector2(450, 34)
 	chat_line.text_submitted.connect(_submit_chat)
 	box.add_child(chat_line)
+	_build_extra_ui()
 
 func _submit_chat(text: String) -> void:
 	if chat_line:
@@ -1838,7 +1848,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			_issue_right(_mouse_ground())
 		else:
 			rmb = false
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if alt_ping:
+			alt_ping = false
+			ping_hold = true
+			_release_ping()
+			return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		if event.alt_pressed:
+			alt_ping = true
+			ping_from = event.position
+			return
 		if aim == "amove":
 			player.command_attack_move(_mouse_ground())
 			aim = ""
@@ -1888,7 +1908,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		cam_pan -= right * event.relative.x * scale
 		cam_pan += fwd * event.relative.y * scale
 	elif event is InputEventKey and event.pressed and not event.echo:
-		_key_down(event.keycode, event.shift_pressed)
+		_key_down(event.keycode, event.shift_pressed, event.alt_pressed, event.ctrl_pressed)
 	elif event is InputEventKey and not event.pressed:
 		_key_up(event.keycode)
 
@@ -1912,7 +1932,7 @@ func _input(event: InputEvent) -> void:
 				focus_unit = null
 			get_viewport().set_input_as_handled()
 			return
-		if event.keycode == KEY_TAB:
+		if event.keycode == Settings.key_of("score"):
 			score_held = event.pressed
 			if score_layer:
 				score_layer.visible = score_held
@@ -1928,7 +1948,14 @@ func _input(event: InputEvent) -> void:
 			cam_lock = true
 			cam_pan = Vector3.ZERO
 
-func _key_down(code: int, shifted: bool = false) -> void:
+func _key_down(code: int, shifted: bool = false, alt: bool = false, ctrl: bool = false) -> void:
+	var spell := _spell_id(code)
+	if spell != "" and ctrl:
+		_rank_spell(spell)
+		return
+	if spell != "" and alt:
+		_self_cast(spell)
+		return
 	if code == Settings.key_of("center"):
 		space_held = true
 	elif code == Settings.key_of("q"):
@@ -1945,6 +1972,8 @@ func _key_down(code: int, shifted: bool = false) -> void:
 			SolNet.cmd({"op": "flash", "x": flash_at.x, "z": flash_at.z})
 		else:
 			_flash()
+	elif ctrl and code == Settings.key_of("frame"):
+		_toggle_frame()
 	elif code == Settings.key_of("f"):
 		if SolNet.remote_client():
 			SolNet.cmd({"op": "heal"})
@@ -1957,6 +1986,11 @@ func _key_down(code: int, shifted: bool = false) -> void:
 			_recall()
 	elif code == Settings.key_of("shop"):
 		_toggle_shop()
+	elif code == Settings.key_of("chat"):
+		if chat_line:
+			chat_line.grab_focus()
+	elif code == Settings.key_of("emote"):
+		_toggle_emote()
 	elif code == Settings.key_of("stop"):
 		if SolNet.remote_client():
 			SolNet.cmd({"op": "stop"})
@@ -1996,6 +2030,143 @@ func _key_up(code: int) -> void:
 		space_held = false
 	if code == Settings.key_of("ping") and ping_hold:
 		_release_ping()
+
+func _spell_id(code: int) -> String:
+	for id in ["q", "w", "e", "r"]:
+		if code == Settings.key_of(id):
+			return id
+	return ""
+
+func _spell_key_text(id: String) -> String:
+	var key := Settings.key_label(Settings.key_of(id))
+	var rank := 0
+	if player != null:
+		rank = int(player.get_meta("rk_" + id, 0))
+	if rank > 0:
+		return "%s %d" % [key, rank]
+	return key
+
+func _rank_spell(id: String) -> void:
+	if player == null:
+		return
+	var cap := 3 if id == "r" else 5
+	var have := int(player.get_meta("rk_" + id, 0))
+	var spent := 0
+	for slot in ["q", "w", "e", "r"]:
+		spent += int(player.get_meta("rk_" + slot, 0))
+	if player.level - spent <= 0 or have >= cap:
+		_say("찍을 포인트가 없습니다.")
+		Sfx.play("error")
+		return
+	player.set_meta("rk_" + id, have + 1)
+	_say("%s  %d레벨" % [id.to_upper(), have + 1])
+	_refresh_keys()
+	Sfx.play("click")
+
+func _self_cast(id: String) -> void:
+	if not _can_act():
+		return
+	aim = ""
+	aim_pick = false
+	_begin_cast(id, player.global_position)
+
+func _build_extra_ui() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 16
+	add_child(layer)
+	inspect_card = Panel.new()
+	inspect_card.visible = false
+	inspect_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inspect_card.custom_minimum_size = Vector2(220, 96)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.06, 0.08, 0.92)
+	style.border_color = Color(0.83, 0.71, 0.51, 0.9)
+	style.set_border_width_all(1)
+	style.set_content_margin_all(8)
+	inspect_card.add_theme_stylebox_override("panel", style)
+	layer.add_child(inspect_card)
+	inspect_text = Label.new()
+	inspect_text.position = Vector2(8, 6)
+	inspect_text.size = Vector2(204, 84)
+	inspect_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	inspect_text.add_theme_font_size_override("font_size", 14)
+	inspect_text.add_theme_color_override("font_color", Color(0.94, 0.91, 0.82))
+	inspect_card.add_child(inspect_text)
+	emote_box = Panel.new()
+	emote_box.visible = false
+	emote_box.add_theme_stylebox_override("panel", style)
+	layer.add_child(emote_box)
+	var emotes := VBoxContainer.new()
+	emotes.position = Vector2(6, 6)
+	emote_box.add_child(emotes)
+	for line in ["안녕하세요", "잘했어요", "미안해요", "갑니다"]:
+		var phrase := str(line)
+		var btn := Button.new()
+		btn.text = phrase
+		btn.custom_minimum_size = Vector2(140, 28)
+		btn.pressed.connect(_send_emote.bind(phrase))
+		emotes.add_child(btn)
+	emote_box.size = Vector2(152, 130)
+	frame_box = Panel.new()
+	frame_box.visible = false
+	frame_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	frame_box.offset_left = -220
+	frame_box.offset_top = 70
+	frame_box.offset_right = -16
+	frame_box.offset_bottom = 150
+	frame_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame_box.add_theme_stylebox_override("panel", style)
+	layer.add_child(frame_box)
+	frame_text = Label.new()
+	frame_text.position = Vector2(10, 8)
+	frame_text.size = Vector2(180, 64)
+	frame_text.add_theme_font_size_override("font_size", 15)
+	frame_text.add_theme_color_override("font_color", Color(0.94, 0.91, 0.82))
+	frame_box.add_child(frame_text)
+
+func _tick_keys_ui() -> void:
+	if inspect_card == null:
+		return
+	var show_info := Input.is_key_pressed(Settings.key_of("inspect")) and not Settings.block_input
+	inspect_card.visible = show_info
+	if show_info:
+		var mouse := get_viewport().get_mouse_position()
+		inspect_card.position = mouse + Vector2(16, 18)
+		_fill_inspect()
+	if frame_open and frame_text and player != null:
+		frame_text.text = "%s  Lv.%d\n%d / %d / %d\nCS %d   %d 골드" % [player.unit_name, player.level, player.kills, player.deaths, player.assists, cs, gold]
+
+func _fill_inspect() -> void:
+	var who = _pick_unit(get_viewport().get_mouse_position())
+	if who == null:
+		inspect_text.text = "대상 없음"
+		return
+	var title := ""
+	if who.kind == "champion":
+		var def: Dictionary = Legends.by_name(who.unit_name)
+		title = str(def.get("title", ""))
+	inspect_text.text = "%s\n%s\nLv.%d  %s\n체력 %d" % [who.unit_name, title, who.level, who.role, int(who.vital.hp)]
+
+func _toggle_emote() -> void:
+	if emote_box == null:
+		return
+	emote_box.visible = not emote_box.visible
+	if emote_box.visible:
+		emote_box.position = get_viewport().get_mouse_position() + Vector2(0, 22)
+
+func _send_emote(phrase: String) -> void:
+	if emote_box:
+		emote_box.visible = false
+	if SolNet.remote_client():
+		SolNet.say_text(phrase, false)
+	else:
+		var who := str(player.username) if player != null else StrifeAcc.current()
+		show_chat(who, phrase, "")
+
+func _toggle_frame() -> void:
+	frame_open = not frame_open
+	if frame_box:
+		frame_box.visible = frame_open
 
 func _arm(id: String, shifted: bool = false) -> void:
 	if not _can_act():

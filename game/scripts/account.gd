@@ -22,6 +22,11 @@ func logged_in() -> bool:
 
 func _ready() -> void:
 	_load_session()
+	if DisplayServer.get_name() == "headless":
+		return
+	if logged_in() and _access_expired():
+		if not _refresh_session():
+			logout()
 
 func register(name: String, password: String) -> String:
 	name = name.strip_edges()
@@ -47,7 +52,18 @@ func login(name: String, password: String) -> String:
 	return _auth("login", name, password)
 
 func function_call(fn: String, body: Dictionary) -> Dictionary:
-	return _http(HTTPClient.METHOD_POST, "/functions/v1/" + fn, JSON.stringify(body), access)
+	if not logged_in():
+		return {"error": "먼저 로그인하세요."}
+	if _access_expired() and not _refresh_session():
+		logout()
+		return {"error": "로그인이 만료되었습니다. 다시 로그인하세요."}
+	var res := _http(HTTPClient.METHOD_POST, "/functions/v1/" + fn, JSON.stringify(body), access)
+	if int(res.get("_code", 0)) == 401 and _refresh_session():
+		res = _http(HTTPClient.METHOD_POST, "/functions/v1/" + fn, JSON.stringify(body), access)
+	if int(res.get("_code", 0)) == 401:
+		logout()
+		return {"error": "로그인이 만료되었습니다. 다시 로그인하세요."}
+	return res
 
 func load_progress() -> void:
 	account_level = 1
@@ -260,6 +276,40 @@ func _load_session() -> void:
 	if access == "":
 		username = ""
 		user_id = ""
+
+func _access_expired() -> bool:
+	var parts := access.split(".")
+	if parts.size() < 2:
+		return true
+	var b64 := parts[1].replace("-", "+").replace("_", "/")
+	var extra := b64.length() % 4
+	if extra > 0:
+		b64 += "=".repeat(4 - extra)
+	var raw := Marshalls.base64_to_raw(b64)
+	var parsed = JSON.parse_string(raw.get_string_from_utf8())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return true
+	var data: Dictionary = parsed
+	return int(data.get("exp", 0)) <= int(Time.get_unix_time_from_system()) + 60
+
+func _refresh_session() -> bool:
+	if refresh == "":
+		return false
+	var res := _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({
+		"refresh_token": refresh,
+	}), KEY)
+	var code := int(res.get("_code", 0))
+	if code < 200 or code >= 300:
+		return false
+	var next_access := str(res.get("access_token", ""))
+	if next_access == "":
+		return false
+	access = next_access
+	var next_refresh := str(res.get("refresh_token", ""))
+	if next_refresh != "":
+		refresh = next_refresh
+	_save_session()
+	return true
 
 func _save_session() -> void:
 	var cfg := ConfigFile.new()

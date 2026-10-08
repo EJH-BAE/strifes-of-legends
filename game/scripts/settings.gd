@@ -64,7 +64,12 @@ func _default_binds() -> Dictionary:
 		"ping": KEY_G,
 		"lock": KEY_Y,
 		"center": KEY_SPACE,
-		"champs": KEY_C,
+		"champs": KEY_QUOTELEFT,
+		"score": KEY_TAB,
+		"chat": KEY_Z,
+		"inspect": KEY_C,
+		"emote": KEY_T,
+		"frame": KEY_F,
 		"i1": KEY_1,
 		"i2": KEY_2,
 		"i3": KEY_3,
@@ -118,6 +123,8 @@ func load_all() -> void:
 	music = float(cfg.get_value("audio", "music", music))
 	for k in binds.keys():
 		binds[k] = int(cfg.get_value("keys", k, binds[k]))
+	if int(binds.get("inspect", 0)) == int(binds.get("champs", 0)):
+		binds["champs"] = KEY_QUOTELEFT
 	if graphics_rev < 2:
 		_playable_graphics()
 		graphics_rev = 2
@@ -267,6 +274,17 @@ func key_of(action: String) -> int:
 	return int(binds.get(action, 0))
 
 func key_label(code: int) -> String:
+	match code:
+		KEY_SPACE:
+			return "스페이스"
+		KEY_TAB:
+			return "Tab"
+		KEY_ESCAPE:
+			return "Esc"
+		KEY_QUOTELEFT:
+			return "`"
+		KEY_ENTER, KEY_KP_ENTER:
+			return "Enter"
 	var text := OS.get_keycode_string(code)
 	if text == "":
 		return "?"

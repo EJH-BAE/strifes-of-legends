@@ -3,26 +3,32 @@ extends CanvasLayer
 signal closed
 
 const GROUPS := [
-	["스킬", "q", "별빛의 결속"],
-	["스킬", "w", "돌봄의 성소"],
-	["스킬", "e", "벽 너머의 길"],
-	["스킬", "r", "멈춘 운명"],
-	["스킬", "d", "점멸"],
-	["스킬", "f", "회복"],
-	["스킬", "recall", "귀환"],
-	["스킬", "shop", "상점"],
-	["명령", "stop", "행동 중지"],
-	["명령", "amove", "공격 이동"],
-	["명령", "champs", "레전드만 공격"],
-	["화면", "lock", "시점 고정 전환"],
-	["화면", "center", "레전드에게 시점"],
-	["아이템", "i1", "아이템 칸 1"],
-	["아이템", "i2", "아이템 칸 2"],
-	["아이템", "i3", "아이템 칸 3"],
-	["아이템", "i4", "아이템 칸 4"],
-	["아이템", "i5", "아이템 칸 5"],
-	["아이템", "i6", "아이템 칸 6"],
-	["아이템", "i7", "아이템 칸 7"],
+	["화면", "center", "스페이스  ·  본인 시점 (누르고 있으면 내 화면)"],
+	["화면", "lock", "Y  ·  카메라 시점 고정"],
+	["화면", "champs", "`  ·  챔피언만 조종"],
+	["스킬", "q", "Q  ·  스킬"],
+	["스킬", "w", "W  ·  스킬"],
+	["스킬", "e", "E  ·  스킬"],
+	["스킬", "r", "R  ·  스킬"],
+	["스킬", "d", "D  ·  소환사 주문"],
+	["스킬", "f", "F  ·  소환사 주문"],
+	["스킬", "recall", "B  ·  귀환"],
+	["스킬", "shop", "P  ·  상점"],
+	["아이템", "i1", "1  ·  장신구"],
+	["아이템", "i2", "2  ·  아이템"],
+	["아이템", "i3", "3  ·  아이템"],
+	["아이템", "i4", "4  ·  아이템"],
+	["아이템", "i5", "5  ·  아이템"],
+	["아이템", "i6", "6  ·  아이템"],
+	["아이템", "i7", "7  ·  아이템"],
+	["정보", "score", "Tab  ·  아군·적 레전드 현황"],
+	["정보", "chat", "Z  ·  채팅"],
+	["정보", "inspect", "C  ·  레전드 정보"],
+	["정보", "emote", "T  ·  감정표현"],
+	["정보", "frame", "우측 상단 정보"],
+	["명령", "stop", "S  ·  모든 행동 중지"],
+	["명령", "amove", "A  ·  공격 명령"],
+	["명령", "ping", "G  ·  핑 휠"],
 ]
 
 var draft := {}
@@ -173,16 +179,27 @@ func _page_controls() -> void:
 		if row[0] != last:
 			last = row[0]
 			_heading(last)
+			if last == "화면":
+				_fixed_key("옵션", "Esc")
 		var line := Button.new()
 		var code := int(draft["binds"][row[1]])
 		var shown := "키 입력" if waiting == row[1] else Settings.key_label(code)
+		if row[1] == "frame" and waiting != row[1]:
+			shown = "Ctrl+" + shown
 		line.text = "%s    %s" % [row[2], shown]
 		line.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		line.pressed.connect(_arm_rebind.bind(row[1]))
 		content.add_child(line)
-	_note("왼쪽 클릭은 스킬 확정과 상점을 고른다. 오른쪽 클릭은 이동과 공격이다.")
-	_note("Shift+우클릭, 또는 A 후 좌클릭은 공격 이동이다.")
-	_note("G를 짧게 누르면 주의. 길게 누르고 방향을 고르면 위험, 적 사라짐, 도와주세요, 갑니다.")
+	_note("Alt+스킬은 자신에게 시전한다. Ctrl+스킬은 스킬 레벨이다.")
+	_note("Alt+왼쪽 클릭을 상하좌우로 끌면 핑 네 가지가 나간다.")
+	_note("Ctrl+우측 상단 정보 키는 오른쪽 위 전적 창을 연다. 기본은 Ctrl+F다.")
+	_note("오른쪽 클릭은 이동이다. A 또는 Shift+우클릭은 공격 명령이다.")
+
+func _fixed_key(key_name: String, label: String) -> void:
+	var line := Label.new()
+	line.text = "%s    %s" % [label, key_name]
+	line.add_theme_color_override("font_color", Color(0.78, 0.74, 0.64))
+	content.add_child(line)
 
 func _page_game() -> void:
 	_heading("게임")
@@ -192,7 +209,7 @@ func _page_game() -> void:
 	_check("damage_numbers", "피해·회복 수치")
 	_check("shake", "화면 흔들림")
 	_check("show_range", "기본 공격 사거리 표시")
-	_note("C를 누르고 있는 동안에는 레전드만 공격 대상이 된다.")
+	_note("` 를 누르고 있는 동안에는 레전드만 공격 대상이 된다.")
 
 func _page_mouse() -> void:
 	_heading("마우스")
@@ -464,12 +481,15 @@ func _close() -> void:
 	closed.emit()
 	queue_free()
 
+func _shares_key(a: String, b: String) -> bool:
+	return (a == "f" and b == "frame") or (a == "frame" and b == "f")
+
 func _input(event: InputEvent) -> void:
 	if waiting != "" and event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		if key.keycode != KEY_ESCAPE and key.keycode != KEY_TAB:
 			for k in draft["binds"].keys():
-				if k != waiting and int(draft["binds"][k]) == key.keycode:
+				if k != waiting and int(draft["binds"][k]) == key.keycode and not _shares_key(k, waiting):
 					draft["binds"][k] = draft["binds"][waiting]
 			draft["binds"][waiting] = key.keycode
 		waiting = ""
